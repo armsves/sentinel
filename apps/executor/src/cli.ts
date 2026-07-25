@@ -6,6 +6,7 @@ import {
   getConfig,
   getEffectiveConfig,
   isDryRunAsync,
+  loadPolicySettings,
   logger,
 } from "@sentinel/core";
 import {
@@ -25,6 +26,8 @@ import {
 import { scoreSignalsWith0G, chatWith0G } from "@sentinel/zg";
 import { parseUnits } from "viem";
 import { printQueue, processOnePanic, runPanicWorker } from "./panicWorker.js";
+import { printDemoResult, runPresentationDemo, runThresholdTrigger } from "./demoPresent.js";
+import type { DemoScenario, TriggerKind } from "@sentinel/monitors";
 
 function usage(): never {
   console.log(`
@@ -40,11 +43,14 @@ Usage:
   pnpm cli panic-simulate [--source x|glider|both]
   pnpm cli panic-once
   pnpm cli panic-worker
+  pnpm cli demo [--scenario depeg|exploit|both] [--enqueue-only] [--json]
+  pnpm cli trigger --kind stop_loss|depeg|tvl_drop|exploit [--value n] [--threshold n] [--enqueue-only] [--json]
   pnpm cli chat --message "hello"
 
 Env:
   EXECUTION_MODE=dry_run|live   (default dry_run)
   UNISWAP_API_KEY, RPC_URL, PRIVATE_KEY, CHAIN_ID
+  SAFE_WALLET_ADDRESS          (post-exit transfer target)
   ZG_ROUTER_API_KEY (for chat / scoring)
 `);
   process.exit(1);
@@ -228,6 +234,7 @@ async function cmdChat(argv: string[]) {
 
 async function cmdPanicSimulate(argv: string[]) {
   const source = (arg("--source", argv) ?? "both") as "x" | "glider" | "both";
+  const cfg = getConfig();
   const signals = [];
   if (source === "x" || source === "both") {
     signals.push(...postsToSignals(BLOCKAID_VERUS_FIXTURE));
@@ -236,7 +243,13 @@ async function cmdPanicSimulate(argv: string[]) {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
   const zg = await scoreSignalsWith0G(signals);
+  const positions = cfg.watchedPools.map((pool) => ({
+    chainId: cfg.CHAIN_ID,
+    pool,
+    tokens: [cfg.SUSD_ADDRESS, cfg.USDC_ADDRESS].filter(Boolean),
+  }));
   const event = await buildPanicEvent(signals, {
+    positions,
     zgScore: zg.score,
     zgRationale: zg.rationale,
     zgShouldPanic: zg.shouldPanic,
@@ -288,6 +301,68 @@ async function main() {
     case "panic-worker":
       await runPanicWorker();
       break;
+    case "demo": {
+      const scenario = (arg("--scenario", argv) ?? "depeg") as DemoScenario;
+      if (!["depeg", "exploit", "both"].includes(scenario)) {
+        logger.error("invalid --scenario (use depeg|exploit|both)");
+        process.exit(1);
+      }
+      const enqueueOnly = argv.includes("--enqueue-only");
+      const asJson = argv.includes("--json");
+      const result = await runPresentationDemo({
+        scenario,
+        execute: !enqueueOnly,
+      });
+      if (asJson) {
+        console.log("___SENTINEL_DEMO_JSON___");
+        console.log(JSON.stringify(result));
+        console.log("___END_DEMO_JSON___");
+      } else {
+        printDemoResult(result);
+      }
+      if (result.executed && result.queueStatus === "failed") process.exit(1);
+      break;
+    }
+    case "trigger": {
+      const kind = (arg("--kind", argv) ?? "stop_loss") as TriggerKind;
+      if (!["stop_loss", "depeg", "tvl_drop", "exploit"].includes(kind)) {
+        logger.error("invalid --kind (stop_loss|depeg|tvl_drop|exploit)");
+        process.exit(1);
+      }
+      const policy = await loadPolicySettings();
+      const thresholdDefault =
+        kind === "stop_loss"
+          ? policy.priceDropThresholdPct
+          : kind === "depeg"
+            ? policy.depegThresholdBps
+            : kind === "tvl_drop"
+              ? policy.poolTvlDropThresholdPct
+              : 0;
+      const threshold = Number(arg("--threshold", argv) ?? thresholdDefault);
+      const value = Number(
+        arg("--value", argv) ??
+          (kind === "depeg"
+            ? threshold + 80
+            : threshold + Math.max(5, threshold * 0.25)),
+      );
+      const enqueueOnly = argv.includes("--enqueue-only");
+      const asJson = argv.includes("--json");
+      const result = await runThresholdTrigger({
+        kind,
+        value,
+        threshold,
+        execute: !enqueueOnly,
+      });
+      if (asJson) {
+        console.log("___SENTINEL_DEMO_JSON___");
+        console.log(JSON.stringify(result));
+        console.log("___END_DEMO_JSON___");
+      } else {
+        printDemoResult(result);
+      }
+      if (result.executed && result.queueStatus === "failed") process.exit(1);
+      break;
+    }
     case "chat":
       await cmdChat(argv);
       break;
