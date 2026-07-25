@@ -1,5 +1,7 @@
 import {
+  buildPanicEvent,
   createClients,
+  enqueuePanic,
   getConfig,
   logger,
   type NormalizedSignal,
@@ -91,7 +93,9 @@ function relevanceBoost(
 ): NormalizedSignal[] {
   const watched = new Set(watchedPools.map((p) => p.toLowerCase()));
   return signals.map((s) => {
-    const tokenHit = (s.tokens ?? []).some((t) => heldSymbols.has(t.toUpperCase()));
+    const tokenHit = (s.tokens ?? []).some((t) =>
+      heldSymbols.has(t.toUpperCase()),
+    );
     const addrHit = s.addresses.some((a) => watched.has(a.toLowerCase()));
     if (!tokenHit && !addrHit) return s;
     return {
@@ -135,6 +139,24 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
   return [...graphPart.signals, ...boostedX];
 }
 
+async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
+  const event = buildPanicEvent(signals);
+  if (!event) return;
+  const added = await enqueuePanic(event);
+  if (added) {
+    logger.warn("panic enqueued", {
+      id: event.id,
+      severity: event.severity,
+      sources: event.reasons.map((r) => r.source),
+      mode: event.mode,
+    });
+  } else {
+    logger.info("panic suppressed (duplicate/cooldown)", {
+      fingerprint: event.id,
+    });
+  }
+}
+
 async function main() {
   const cfg = getConfig();
   logger.info("scanner starting", {
@@ -157,8 +179,11 @@ async function main() {
         logger.warn("active signals", {
           count: signals.length,
           bySource,
-          messages: signals.map((s) => `[${s.source}/${s.severity}] ${s.message}`),
+          messages: signals.map(
+            (s) => `[${s.source}/${s.severity}] ${s.message}`,
+          ),
         });
+        await maybeEnqueuePanic(signals);
       } else {
         logger.info("no active signals");
       }
