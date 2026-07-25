@@ -13,17 +13,30 @@ import {
 } from "@sentinel/core";
 import {
   BLOCKAID_VERUS_FIXTURE,
+  GLIDER_FIXTURE,
+  normalizeGliderWebhook,
   postsToSignals,
+  type GliderWebhookPayload,
 } from "@sentinel/monitors";
 import {
   executeSwap,
   listOwnerPositions,
 } from "@sentinel/uniswap";
 import { parseUnits } from "viem";
+import { timingSafeEqual } from "node:crypto";
 
 const app = new Hono();
 app.use("*", cors());
 
+function checkGliderSecret(header: string | undefined): boolean {
+  const secret = getConfig().GLIDER_WEBHOOK_SECRET;
+  if (!secret) return true;
+  if (!header) return false;
+  const a = Buffer.from(secret);
+  const b = Buffer.from(header);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 app.get("/api/health", (c) => {
   const cfg = getConfig();
   return c.json({
@@ -60,13 +73,53 @@ app.get("/api/positions", async (c) => {
 });
 
 app.post("/api/panic/simulate", async (c) => {
-  const signals: NormalizedSignal[] = postsToSignals(BLOCKAID_VERUS_FIXTURE);
+  const body = await c.req
+    .json<{ source?: "x" | "glider" | "both" }>()
+    .catch(() => ({ source: "both" as const }));
+  const source = body.source ?? "both";
+  const signals: NormalizedSignal[] = [];
+  if (source === "x" || source === "both") {
+    signals.push(...postsToSignals(BLOCKAID_VERUS_FIXTURE));
+  }
+  if (source === "glider" || source === "both") {
+    signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
+  }
   const event = buildPanicEvent(signals);
   if (!event) {
     return c.json({ error: "policy did not create panic from fixture" }, 400);
   }
   const added = await enqueuePanic(event);
   return c.json({ added, event });
+});
+
+app.post("/hooks/glider", async (c) => {
+  const secret = c.req.header("x-glider-secret") ?? c.req.header("x-webhook-secret");
+  if (!checkGliderSecret(secret ?? undefined)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const payload = (await c.req.json()) as GliderWebhookPayload;
+  const signal = normalizeGliderWebhook(payload);
+  logger.warn("glider webhook received", {
+    severity: signal.severity,
+    message: signal.message,
+    addresses: signal.addresses,
+  });
+  const event = buildPanicEvent([signal]);
+  if (!event) {
+    return c.json({ ok: true, enqueued: false, signal });
+  }
+  const added = await enqueuePanic(event);
+  return c.json({ ok: true, enqueued: added, event, signal });
+});
+
+app.post("/api/glider/simulate", async (c) => {
+  const signal = normalizeGliderWebhook(GLIDER_FIXTURE);
+  const event = buildPanicEvent([signal]);
+  if (!event) {
+    return c.json({ error: "policy rejected glider fixture" }, 400);
+  }
+  const added = await enqueuePanic(event);
+  return c.json({ added, event, signal });
 });
 
 app.post("/api/actions/swap", async (c) => {

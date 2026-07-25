@@ -84,6 +84,25 @@ const envSchema = z.object({
   X_MAX_POSTS: z.coerce.number().default(10),
   // Optional path to a JSON fixture for demo without X API credentials
   X_FIXTURE_PATH: z.string().default(""),
+
+  GLIDER_WEBHOOK_SECRET: z.string().default(""),
+  FORTA_API_KEY: z.string().default(""),
+  FORTA_API_URL: z
+    .string()
+    .default("https://api.forta.network/graphql"),
+  FORTA_POLL_ENABLED: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
+
+  ZG_COMPUTE_MODE: z.enum(["router", "off"]).default("router"),
+  ZG_ROUTER_API_KEY: z.string().default(""),
+  ZG_ROUTER_BASE_URL: z.string().default("https://router-api.0g.ai/v1"),
+  ZG_MODEL: z.string().default("qwen/qwen-2.5-7b-instruct"),
+  ZG_SCORING_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v !== "false"),
 });
 
 export type SentinelConfig = z.infer<typeof envSchema> & {
