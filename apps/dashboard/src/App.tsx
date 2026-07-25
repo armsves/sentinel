@@ -1219,14 +1219,35 @@ function PortfolioPage(props: {
 
   return (
     <>
-      <section className="page-head">
-        <h1>Portfolio</h1>
-        <p className="tagline">
-          Hot wallet, safe destination, watched pools, and open Uniswap
-          positions the agent can exit.
-        </p>
-        <button type="button" onClick={onRefresh}>
-          Refresh
+      <section className="page-head portfolio-head">
+        <div className="page-head-copy">
+          <h1>Portfolio</h1>
+          <p className="tagline">
+            Hot wallet, safe destination, watched pools, and open Uniswap
+            positions the agent can exit.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onRefresh}
+          aria-label="Refresh portfolio"
+          title="Refresh (also auto every 10s)"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12a9 9 0 1 1-2.1-5.7" />
+            <path d="M21 3v6h-6" />
+          </svg>
         </button>
       </section>
 
