@@ -134,7 +134,7 @@ async function flightToStables(event: PanicEvent) {
             amount: balance.toString(),
             swapper: address,
             slippageTolerance: Math.max(cfg.SLIPPAGE_TOLERANCE, 1),
-            routingPreference: "CLASSIC",
+            routingPreference: "BEST_PRICE",
           },
           walletClient,
           publicClient,

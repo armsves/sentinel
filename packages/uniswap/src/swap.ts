@@ -15,7 +15,7 @@ export type SwapParams = {
   swapper: `0x${string}`;
   type?: "EXACT_INPUT" | "EXACT_OUTPUT";
   slippageTolerance?: number;
-  routingPreference?: "BEST_PRICE" | "FASTEST" | "CLASSIC";
+  routingPreference?: "BEST_PRICE" | "FASTEST";
 };
 
 type QuoteResponse = {
@@ -70,7 +70,7 @@ export async function getQuote(params: SwapParams): Promise<QuoteResponse> {
       type: params.type ?? "EXACT_INPUT",
       swapper: params.swapper,
       slippageTolerance: params.slippageTolerance ?? cfg.SLIPPAGE_TOLERANCE,
-      routingPreference: params.routingPreference ?? "CLASSIC",
+      routingPreference: params.routingPreference ?? "BEST_PRICE",
     },
     tradeHeaders(),
   );
@@ -144,23 +144,27 @@ export async function executeSwap(opts: {
   walletClient: WalletClient<Transport, Chain, Account>;
   publicClient: PublicClient<Transport, Chain>;
   dryRun: boolean;
+  /** Skip /check_approval when Permit2 allowances are already set. */
+  skipApproval?: boolean;
 }): Promise<{ quote: QuoteResponse; hash?: Hex; simulated: boolean }> {
   const cfg = getConfig();
-  const approval = await checkSwapApproval({
-    walletAddress: opts.params.swapper,
-    token: opts.params.tokenIn,
-    amount: opts.params.amount,
-    chainId: cfg.CHAIN_ID,
-  });
-
-  if (approval) {
-    await sendApiTx({
-      tx: approval,
-      walletClient: opts.walletClient,
-      publicClient: opts.publicClient,
-      dryRun: opts.dryRun,
-      label: "swap_approval",
+  if (!opts.skipApproval) {
+    const approval = await checkSwapApproval({
+      walletAddress: opts.params.swapper,
+      token: opts.params.tokenIn,
+      amount: opts.params.amount,
+      chainId: cfg.CHAIN_ID,
     });
+
+    if (approval) {
+      await sendApiTx({
+        tx: approval,
+        walletClient: opts.walletClient,
+        publicClient: opts.publicClient,
+        dryRun: opts.dryRun,
+        label: "swap_approval",
+      });
+    }
   }
 
   const quote = await getQuote(opts.params);
@@ -169,7 +173,6 @@ export async function executeSwap(opts: {
     requestId: quote.requestId,
   });
 
-  // Prefer CLASSIC path for bots; if UniswapX, still try /swap when possible.
   let signature: string | undefined;
   if (!opts.dryRun) {
     signature = await maybeSignPermit(quote, opts.walletClient);

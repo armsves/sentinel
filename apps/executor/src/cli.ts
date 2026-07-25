@@ -85,7 +85,7 @@ async function cmdSwap(argv: string[]) {
       amount,
       swapper: address,
       slippageTolerance: cfg.SLIPPAGE_TOLERANCE,
-      routingPreference: "CLASSIC",
+      routingPreference: "BEST_PRICE",
     },
     walletClient,
     publicClient,

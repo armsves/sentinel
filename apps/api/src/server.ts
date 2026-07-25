@@ -200,7 +200,7 @@ app.post("/api/actions/swap", async (c) => {
         amount,
         swapper: address,
         slippageTolerance: cfg.SLIPPAGE_TOLERANCE,
-        routingPreference: "CLASSIC",
+        routingPreference: "BEST_PRICE",
       },
       walletClient,
       publicClient,
