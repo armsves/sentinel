@@ -45,6 +45,9 @@ importers:
       '@sentinel/graph':
         specifier: workspace:*
         version: link:../../packages/graph
+      '@sentinel/monitors':
+        specifier: workspace:^
+        version: link:../../packages/monitors
     devDependencies:
       '@types/node':
         specifier: ^26.1.1

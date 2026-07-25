@@ -27,11 +27,13 @@
 - [x] Health heuristics: min TVL, day-over-day TVL drop, zero liquidity, stable-stable depeg
 - [x] Scanner loop emits unhealthy signals
 
-## Phase 4 — Security plane (next)
+## Phase 4 — Security plane
 
+- [x] X / Blockaid monitor (`@sentinel/monitors`) + fixture
+- [x] Scanner fuses Graph pool health + X exploit signals
 - [ ] Glider webhook adapter
 - [ ] Forta poll **or** Defimon WS
-- [ ] Normalization + allowlist matching + panic confirmations
+- [ ] Panic confirmations + queue to executor
 
 ## Phase 5 — Intelligence (0G)
 

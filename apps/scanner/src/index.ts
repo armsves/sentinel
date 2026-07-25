@@ -10,13 +10,19 @@ import {
   fetchPortfolioTokens,
   poolHealthToSignals,
 } from "@sentinel/graph";
+import { pollXExploitSignals } from "@sentinel/monitors";
 import { formatUnits } from "viem";
 
-async function scanOnce(): Promise<NormalizedSignal[]> {
+async function scanGraph(): Promise<{
+  signals: NormalizedSignal[];
+  heldSymbols: Set<string>;
+}> {
   const cfg = getConfig();
   const { publicClient, address } = createClients();
   if (!address) {
-    throw new Error("Set WALLET_ADDRESS or PRIVATE_KEY so scanner knows the portfolio owner");
+    throw new Error(
+      "Set WALLET_ADDRESS or PRIVATE_KEY so scanner knows the portfolio owner",
+    );
   }
 
   const portfolioAddrs = (
@@ -40,15 +46,21 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
     })),
   });
 
-  const held = portfolio.filter((t) => BigInt(t.balanceRaw) > 0n).map((t) => t.address);
+  const held = portfolio
+    .filter((t) => BigInt(t.balanceRaw) > 0n)
+    .map((t) => t.address);
   const tokenUniverse = held.length ? held : portfolioAddrs;
+  const heldSymbols = new Set(
+    portfolio
+      .filter((t) => BigInt(t.balanceRaw) > 0n)
+      .map((t) => t.symbol.toUpperCase()),
+  );
 
   let pools =
     cfg.watchedPools.length > 0
       ? await fetchPoolHealthByIds(cfg.watchedPools)
       : await fetchPoolsForPortfolioTokens(tokenUniverse);
 
-  // Always include explicitly watched pools even when also scanning by token
   if (cfg.watchedPools.length && held.length) {
     const byToken = await fetchPoolsForPortfolioTokens(tokenUniverse);
     const seen = new Set(pools.map((p) => p.poolAddress));
@@ -69,7 +81,58 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
     })),
   });
 
-  return poolHealthToSignals(pools);
+  return { signals: poolHealthToSignals(pools), heldSymbols };
+}
+
+function relevanceBoost(
+  signals: NormalizedSignal[],
+  heldSymbols: Set<string>,
+  watchedPools: string[],
+): NormalizedSignal[] {
+  const watched = new Set(watchedPools.map((p) => p.toLowerCase()));
+  return signals.map((s) => {
+    const tokenHit = (s.tokens ?? []).some((t) => heldSymbols.has(t.toUpperCase()));
+    const addrHit = s.addresses.some((a) => watched.has(a.toLowerCase()));
+    if (!tokenHit && !addrHit) return s;
+    return {
+      ...s,
+      severity:
+        s.severity === "critical"
+          ? s.severity
+          : s.severity === "high"
+            ? "critical"
+            : "high",
+      message: `${s.message} [matches portfolio/watched]`,
+    };
+  });
+}
+
+async function scanOnce(): Promise<NormalizedSignal[]> {
+  const cfg = getConfig();
+  const graphPart = await scanGraph().catch((err) => {
+    logger.error("graph scan failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      signals: [] as NormalizedSignal[],
+      heldSymbols: new Set<string>(),
+    };
+  });
+
+  const xSignals = await pollXExploitSignals().catch((err) => {
+    logger.error("x scan failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [] as NormalizedSignal[];
+  });
+
+  const boostedX = relevanceBoost(
+    xSignals,
+    graphPart.heldSymbols,
+    cfg.watchedPools,
+  );
+
+  return [...graphPart.signals, ...boostedX];
 }
 
 async function main() {
@@ -79,18 +142,25 @@ async function main() {
     intervalMs: cfg.SCAN_INTERVAL_MS,
     mode: cfg.EXECUTION_MODE,
     subgraph: cfg.GRAPH_UNISWAP_SUBGRAPH,
+    xAccounts: cfg.xWatchAccounts,
+    xFixture: !cfg.X_BEARER_TOKEN,
   });
 
   const tick = async () => {
     try {
       const signals = await scanOnce();
+      const bySource = signals.reduce<Record<string, number>>((acc, s) => {
+        acc[s.source] = (acc[s.source] ?? 0) + 1;
+        return acc;
+      }, {});
       if (signals.length) {
-        logger.warn("unhealthy signals", {
+        logger.warn("active signals", {
           count: signals.length,
-          messages: signals.map((s) => s.message),
+          bySource,
+          messages: signals.map((s) => `[${s.source}/${s.severity}] ${s.message}`),
         });
       } else {
-        logger.info("all watched pools healthy");
+        logger.info("no active signals");
       }
     } catch (err) {
       logger.error("scan failed", {
