@@ -172,7 +172,7 @@ export function App() {
 
       <div className="actions">
         <button className="primary" disabled={busy} onClick={() => void simulatePanic()}>
-          Simulate Blockaid panic
+          Simulate Blockaid + Glider panic
         </button>
         <button disabled={busy} onClick={() => void refresh()}>
           Refresh

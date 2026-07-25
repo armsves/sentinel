@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 import {
+  buildPanicEvent,
   createClients,
+  enqueuePanic,
   getConfig,
   isDryRun,
   logger,
 } from "@sentinel/core";
+import {
+  BLOCKAID_VERUS_FIXTURE,
+  GLIDER_FIXTURE,
+  normalizeGliderWebhook,
+  postsToSignals,
+} from "@sentinel/monitors";
 import {
   createPosition,
   decreasePosition,
@@ -13,6 +21,7 @@ import {
   getPositionByTokenId,
   listOwnerPositions,
 } from "@sentinel/uniswap";
+import { scoreSignalsWith0G } from "@sentinel/zg";
 import { parseUnits } from "viem";
 import { printQueue, processOnePanic, runPanicWorker } from "./panicWorker.js";
 
@@ -27,6 +36,7 @@ Usage:
   pnpm cli positions [--nft <tokenId>]
   pnpm cli pool-info --tokenA <addr> --tokenB <addr> [--fee 3000] [--protocol V3]
   pnpm cli queue
+  pnpm cli panic-simulate [--source x|glider|both]
   pnpm cli panic-once
   pnpm cli panic-worker
 
@@ -207,6 +217,29 @@ async function cmdPoolInfo(argv: string[]) {
   console.log(JSON.stringify(info, null, 2));
 }
 
+async function cmdPanicSimulate(argv: string[]) {
+  const source = (arg("--source", argv) ?? "both") as "x" | "glider" | "both";
+  const signals = [];
+  if (source === "x" || source === "both") {
+    signals.push(...postsToSignals(BLOCKAID_VERUS_FIXTURE));
+  }
+  if (source === "glider" || source === "both") {
+    signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
+  }
+  const zg = await scoreSignalsWith0G(signals);
+  const event = buildPanicEvent(signals, {
+    zgScore: zg.score,
+    zgRationale: zg.rationale,
+    zgShouldPanic: zg.shouldPanic,
+  });
+  if (!event) {
+    logger.error("panic policy rejected simulation", { zg });
+    process.exit(1);
+  }
+  const added = await enqueuePanic(event);
+  console.log(JSON.stringify({ added, event, zg }, null, 2));
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
@@ -236,6 +269,9 @@ async function main() {
       break;
     case "queue":
       await printQueue();
+      break;
+    case "panic-simulate":
+      await cmdPanicSimulate(argv);
       break;
     case "panic-once":
       await processOnePanic();
