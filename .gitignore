@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+out/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# logs & runtime
+logs/
+*.log
+.tmp/
+.cache/
+coverage/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# agent state
+data/
+*.sqlite
+*.db
