@@ -18,6 +18,7 @@ import {
   postsToSignals,
   type GliderWebhookPayload,
 } from "@sentinel/monitors";
+import { scoreSignalsWith0G } from "@sentinel/zg";
 import {
   executeSwap,
   listOwnerPositions,
@@ -84,12 +85,17 @@ app.post("/api/panic/simulate", async (c) => {
   if (source === "glider" || source === "both") {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
-  const event = buildPanicEvent(signals);
+  const zg = await scoreSignalsWith0G(signals);
+  const event = buildPanicEvent(signals, {
+    zgScore: zg.score,
+    zgRationale: zg.rationale,
+    zgShouldPanic: zg.shouldPanic,
+  });
   if (!event) {
-    return c.json({ error: "policy did not create panic from fixture" }, 400);
+    return c.json({ error: "policy did not create panic from fixture", zg }, 400);
   }
   const added = await enqueuePanic(event);
-  return c.json({ added, event });
+  return c.json({ added, event, zg });
 });
 
 app.post("/hooks/glider", async (c) => {

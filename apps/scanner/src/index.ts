@@ -13,6 +13,7 @@ import {
   poolHealthToSignals,
 } from "@sentinel/graph";
 import { pollXExploitSignals } from "@sentinel/monitors";
+import { scoreSignalsWith0G } from "@sentinel/zg";
 import { formatUnits } from "viem";
 
 async function scanGraph(): Promise<{
@@ -140,7 +141,19 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
 }
 
 async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
-  const event = buildPanicEvent(signals);
+  const zg = await scoreSignalsWith0G(signals);
+  logger.info("0G risk score", {
+    provider: zg.provider,
+    score: zg.score,
+    shouldPanic: zg.shouldPanic,
+    severity: zg.severity,
+    rationale: zg.rationale,
+  });
+  const event = buildPanicEvent(signals, {
+    zgScore: zg.score,
+    zgRationale: zg.rationale,
+    zgShouldPanic: zg.shouldPanic,
+  });
   if (!event) return;
   const added = await enqueuePanic(event);
   if (added) {
@@ -149,6 +162,7 @@ async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
       severity: event.severity,
       sources: event.reasons.map((r) => r.source),
       mode: event.mode,
+      zgScore: event.zgScore,
     });
   } else {
     logger.info("panic suppressed (duplicate/cooldown)", {

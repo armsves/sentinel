@@ -12,7 +12,8 @@
   "dependencies": {
     "@sentinel/core": "workspace:*",
     "@sentinel/graph": "workspace:*",
-    "@sentinel/monitors": "workspace:^"
+    "@sentinel/monitors": "workspace:^",
+    "@sentinel/zg": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

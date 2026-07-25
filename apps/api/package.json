@@ -9,10 +9,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^1.14.1",
     "@sentinel/core": "workspace:*",
     "@sentinel/monitors": "workspace:*",
     "@sentinel/uniswap": "workspace:*",
-    "@hono/node-server": "^1.14.1",
+    "@sentinel/zg": "workspace:^",
     "hono": "^4.7.5",
     "viem": "^2.28.0"
   },

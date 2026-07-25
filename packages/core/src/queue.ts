@@ -40,7 +40,12 @@ function rankSeverity(s: Severity): number {
 
 export function buildPanicEvent(
   signals: NormalizedSignal[],
-  opts?: { positions?: PanicEvent["positions"] },
+  opts?: {
+    positions?: PanicEvent["positions"];
+    zgScore?: number;
+    zgRationale?: string;
+    zgShouldPanic?: boolean;
+  },
 ): PanicEvent | null {
   if (!signals.length) return null;
   const cfg = getConfig();
@@ -50,15 +55,17 @@ export function buildPanicEvent(
     "low",
   );
 
+  const zgBoost =
+    opts?.zgShouldPanic === true && (opts.zgScore ?? 0) >= 0.8 && signals.length >= 1;
+
   const confirmed =
     sources.size >= cfg.PANIC_CONFIRMATIONS ||
     (maxSev === "critical" && sources.has("x")) ||
-    (maxSev === "critical" && sources.has("glider"));
+    (maxSev === "critical" && sources.has("glider")) ||
+    zgBoost;
 
   if (!confirmed && maxSev !== "critical") return null;
-  // Allow single critical X/graph for dry_run demos when confirmations=1
   if (!confirmed && cfg.PANIC_CONFIRMATIONS > 1 && maxSev === "critical" && sources.size === 1) {
-    // still emit for dry_run so demo works with fixture-only
     if (cfg.EXECUTION_MODE !== "dry_run") return null;
   }
 
@@ -75,7 +82,7 @@ export function buildPanicEvent(
   return {
     id: `${id}-${randomUUID().slice(0, 8)}`,
     ts: Date.now(),
-    severity: maxSev,
+    severity: opts?.zgScore && opts.zgScore >= 0.9 ? "critical" : maxSev,
     reasons: signals.map((s) => ({
       source: s.source,
       signal: s.message,
@@ -91,6 +98,8 @@ export function buildPanicEvent(
       ["USDC", "USDT", "DAI"].includes(a),
     ),
     mode: cfg.EXECUTION_MODE,
+    zgScore: opts?.zgScore,
+    zgRationale: opts?.zgRationale,
   };
 }
 
