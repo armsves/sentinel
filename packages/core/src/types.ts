@@ -7,7 +7,8 @@ export type SignalSource =
   | "defimon"
   | "price"
   | "zg"
-  | "uniswap";
+  | "uniswap"
+  | "x";
 
 export type SignalCategory =
   | "exploit"

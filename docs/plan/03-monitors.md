@@ -27,6 +27,7 @@ Use as backup or complementary feeds. Prefer anything with **API / WebSocket / w
 | Tool | Fit for Sentinel | Integration style | Notes |
 | --- | --- | --- | --- |
 | [**Forta**](https://docs.forta.network/) | Broad on-chain threat intel from detection bots | GraphQL API poll; paid push webhooks | Good generic exploit / anomaly coverage; public API polling works for MVP |
+| [**Blockaid (X)**](https://x.com/blockaid_) | Public exploit alerts with contracts / tokens / txs | X API v2 bearer **or** local fixture | `@sentinel/monitors` parses drain posts (e.g. VerusCoin bridge) |
 | [**Defimon**](https://defimon.xyz/) | Machine-readable exploit stream | WebSocket JSON (raw + LLM-confirmed) | Built for agent IR; low parsing cost |
 | [**Hypernative**](https://www.hypernative.io/) | Enterprise detect + automated response | Webhooks / API (sales / trial) | Strong depeg + economic attack coverage; may be heavy for weekend |
 | [**Guardrail**](https://www.guardrail.ai/monitoring/security-risk-monitoring) | Real-time exploit / oracle / flash-loan monitoring | Alerts → Discord/Slack/Telegram/PagerDuty | Request access; good “React” peer to Glider |
@@ -44,37 +45,17 @@ Priority sources (need ≥ PANIC_CONFIRMATIONS = 2 by default):
 1. Glider critical / high alert on watched protocol or dependency
 2. Graph-derived: pool TVL −X% or token −Y% in window
 3. Graph / oracle: stable peg deviation > DEPEG_THRESHOLD_BPS
-4. Optional: Defimon LLM-confirmed exploit mentioning watched token/protocol
-5. Optional: Forta alert matching watched addresses
+4. X/Blockaid exploit post mentioning watched token or contract
+5. Optional: Defimon LLM-confirmed exploit mentioning watched token/protocol
+6. Optional: Forta alert matching watched addresses
 ```
 
 0G then **explains and scores**; hard policy still requires multi-source agreement for `live` exits.
 
-## Adapter interface
+## X / Blockaid enrollment
 
-```ts
-interface MonitorAdapter {
-  name: string;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  // push into scanner bus
-  onSignal(handler: (signal: NormalizedSignal) => void): void;
-}
-
-type NormalizedSignal = {
-  source: string;
-  severity: "low" | "medium" | "high" | "critical";
-  addresses: string[];
-  tokens?: string[];
-  category: "exploit" | "hack" | "depeg" | "price" | "dependency" | "invariant" | "other";
-  raw: unknown;
-  ts: number;
-};
-```
-
-## Enrollment checklist
-
+- [ ] Create X developer app + `X_BEARER_TOKEN` (optional; fixture works without it)
+- [ ] Confirm `X_WATCH_ACCOUNTS=blockaid_` (add more handles as needed)
 - [ ] Glider Community: portal.hexens.io — add contracts, webhook URL → `/hooks/glider`
 - [ ] Forta: identify 1–2 bots relevant to Uniswap / ERC20 anomaly; poll API
-- [ ] Defimon: request API key / WS URL if available this weekend
 - [ ] DIY price: Graph + Chainlink as always-on depeg/crash baseline (no vendor lock)

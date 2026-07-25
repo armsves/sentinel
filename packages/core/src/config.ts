@@ -73,6 +73,17 @@ const envSchema = z.object({
   EXECUTION_MODE: z.enum(["dry_run", "live"]).default("dry_run"),
   AGENT_ROLE: z.enum(["scanner", "executor"]).default("scanner"),
   SLIPPAGE_TOLERANCE: z.coerce.number().default(1),
+
+  // X / Twitter security intel (e.g. @blockaid_)
+  X_BEARER_TOKEN: z.string().default(""),
+  X_WATCH_ACCOUNTS: z.string().default("blockaid_"),
+  X_POLL_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v !== "false"),
+  X_MAX_POSTS: z.coerce.number().default(10),
+  // Optional path to a JSON fixture for demo without X API credentials
+  X_FIXTURE_PATH: z.string().default(""),
 });
 
 export type SentinelConfig = z.infer<typeof envSchema> & {
@@ -80,6 +91,7 @@ export type SentinelConfig = z.infer<typeof envSchema> & {
   watchedPools: string[];
   watchedPositionIds: string[];
   portfolioTokens: string[];
+  xWatchAccounts: string[];
 };
 
 let cached: SentinelConfig | null = null;
@@ -118,6 +130,9 @@ export function getConfig(force = false): SentinelConfig {
     portfolioTokens: e.PORTFOLIO_TOKENS.split(",")
       .map((s) => s.trim().toLowerCase())
       .filter((s) => /^0x[a-fA-F0-9]{40}$/.test(s)),
+    xWatchAccounts: e.X_WATCH_ACCOUNTS.split(",")
+      .map((s) => s.trim().replace(/^@/, ""))
+      .filter(Boolean),
   };
   return cached;
 }
