@@ -1,4 +1,4 @@
-import { getEffectiveConfig, logger, type NormalizedSignal, type PoolHealth, type PortfolioToken } from "@sentinel/core";
+import { getEffectiveConfig, type NormalizedSignal, type PoolHealth, type PortfolioToken } from "@sentinel/core";
 import { erc20Abi, formatUnits, type PublicClient, type Chain, type Transport } from "viem";
 import { graphQuery } from "./client.js";
 
@@ -32,6 +32,8 @@ const POOLS_BY_ID_QUERY = /* GraphQL */ `
         date
         volumeUSD
         tvlUSD
+        token0Price
+        token1Price
       }
     }
   }
@@ -58,6 +60,8 @@ const POOLS_TOKEN0_QUERY = /* GraphQL */ `
         date
         volumeUSD
         tvlUSD
+        token0Price
+        token1Price
       }
     }
   }
@@ -84,6 +88,8 @@ const POOLS_TOKEN1_QUERY = /* GraphQL */ `
         date
         volumeUSD
         tvlUSD
+        token0Price
+        token1Price
       }
     }
   }
@@ -109,8 +115,36 @@ type GPool = {
   token1Price?: string;
   token0: { id: string; symbol: string };
   token1: { id: string; symbol: string };
-  poolDayData?: Array<{ date: number; volumeUSD: string; tvlUSD: string }>;
+  poolDayData?: Array<{
+    date: number;
+    volumeUSD: string;
+    tvlUSD: string;
+    token0Price?: string;
+    token1Price?: string;
+  }>;
 };
+
+const PEG_SYMBOL_RE = /^(s?usd|usdc|usdt|dai|eurc|usde|susde|frax|lusd|gusd|crvusd|scrvusd)$/i;
+
+function peggedTokenSet(cfg: Awaited<ReturnType<typeof getEffectiveConfig>>): Set<string> {
+  const addrs = [
+    cfg.USDC_ADDRESS,
+    cfg.USDT_ADDRESS,
+    cfg.DAI_ADDRESS,
+    cfg.SUSD_ADDRESS,
+    ...cfg.peggedTokens,
+  ]
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => /^0x[a-f0-9]{40}$/.test(a));
+  return new Set(addrs);
+}
+
+function isPegCandidate(
+  token: { id: string; symbol: string },
+  pegged: Set<string>,
+): boolean {
+  return pegged.has(token.id.toLowerCase()) || PEG_SYMBOL_RE.test(token.symbol);
+}
 
 async function assessPool(pool: GPool): Promise<PoolHealth> {
   const cfg = await getEffectiveConfig();
@@ -131,28 +165,55 @@ async function assessPool(pool: GPool): Promise<PoolHealth> {
         issues.push(`TVL dropped ${dropPct.toFixed(1)}% vs prior day`);
       }
     }
+
+    // Stop-loss: day-over-day token price drop in the pool
+    for (const side of ["token0", "token1"] as const) {
+      const priceKey = side === "token0" ? "token0Price" : "token1Price";
+      const now = Number(day[0]?.[priceKey] ?? pool[priceKey] ?? 0);
+      const prev = Number(day[1]?.[priceKey] ?? now);
+      if (prev > 0 && now > 0) {
+        const dropPct = ((prev - now) / prev) * 100;
+        if (dropPct >= cfg.PRICE_DROP_THRESHOLD_PCT) {
+          const sym = side === "token0" ? pool.token0.symbol : pool.token1.symbol;
+          issues.push(
+            `${sym} price dropped ${dropPct.toFixed(1)}% vs prior day (stop-loss)`,
+          );
+        }
+      }
+    }
   }
   if (BigInt(pool.liquidity || "0") === 0n) {
     issues.push("zero liquidity");
   }
 
-  // crude stable depeg check when one side is a known stable
-  const stables = new Set(
-    [cfg.USDC_ADDRESS, cfg.USDT_ADDRESS, cfg.DAI_ADDRESS].map((a) => a.toLowerCase()),
-  );
-  const t0Stable = stables.has(pool.token0.id.toLowerCase());
-  const t1Stable = stables.has(pool.token1.id.toLowerCase());
-  if (t0Stable !== t1Stable) {
-    const price = t0Stable
-      ? Number(pool.token1Price ?? 0)
-      : Number(pool.token0Price ?? 0);
-    // price of volatile in stable terms — skip; for stable-stable check:
-  }
-  if (t0Stable && t1Stable) {
+  // Peg / depeg: known stables + sUSD / other pegged assets
+  const pegged = peggedTokenSet(cfg);
+  const t0Peg = isPegCandidate(pool.token0, pegged);
+  const t1Peg = isPegCandidate(pool.token1, pegged);
+  if (t0Peg && t1Peg) {
     const p = Number(pool.token0Price ?? 1);
     const deviationBps = Math.abs(p - 1) * 10_000;
     if (deviationBps >= cfg.DEPEG_THRESHOLD_BPS) {
-      issues.push(`stable-stable peg deviation ${deviationBps.toFixed(0)} bps`);
+      issues.push(
+        `depeg ${pool.token0.symbol}/${pool.token1.symbol} ${deviationBps.toFixed(0)} bps`,
+      );
+    }
+  } else if (t0Peg !== t1Peg) {
+    // Volatile vs stable: only flag 1:1 depeg when the non-reserve side looks pegged
+    // (e.g. sUSD/USDC). tokenXPrice ≈ units of other token per this token.
+    const pegPrice = t0Peg
+      ? Number(pool.token0Price ?? 0)
+      : Number(pool.token1Price ?? 0);
+    if (pegPrice > 0) {
+      // If price is within a wide band of 1, treat as intended peg and measure deviation.
+      // Skip pure volatile pairs (WETH/USDC) where pegPrice is nowhere near 1.
+      if (pegPrice > 0.5 && pegPrice < 2) {
+        const deviationBps = Math.abs(pegPrice - 1) * 10_000;
+        if (deviationBps >= cfg.DEPEG_THRESHOLD_BPS) {
+          const soft = t0Peg ? pool.token0.symbol : pool.token1.symbol;
+          issues.push(`depeg ${soft} ${deviationBps.toFixed(0)} bps vs stable`);
+        }
+      }
     }
   }
 
@@ -243,18 +304,34 @@ export async function fetchPoolsForPortfolioTokens(
 export function poolHealthToSignals(pools: PoolHealth[]): NormalizedSignal[] {
   return pools
     .filter((p) => !p.healthy)
-    .map((p) => ({
-      source: "graph" as const,
-      severity: p.issues.some((i) => i.includes("dropped") || i.includes("depeg"))
-        ? ("high" as const)
-        : ("medium" as const),
-      addresses: [p.poolAddress, p.token0.address, p.token1.address],
-      tokens: [p.token0.symbol, p.token1.symbol],
-      category: p.issues.some((i) => i.includes("peg"))
+    .map((p) => {
+      const hasDepeg = p.issues.some((i) => i.toLowerCase().includes("depeg"));
+      const hasStopLoss = p.issues.some((i) =>
+        i.toLowerCase().includes("stop-loss"),
+      );
+      const hasDrain = p.issues.some(
+        (i) =>
+          i.toLowerCase().includes("dropped") ||
+          i.toLowerCase().includes("zero liquidity"),
+      );
+      const category = hasDepeg
         ? ("depeg" as const)
-        : ("pool_health" as const),
-      message: `Pool ${p.token0.symbol}/${p.token1.symbol} unhealthy: ${p.issues.join("; ")}`,
-      raw: p,
-      ts: p.ts,
-    }));
+        : hasStopLoss
+          ? ("price" as const)
+          : ("pool_health" as const);
+      const severity =
+        hasDepeg || hasStopLoss || hasDrain
+          ? ("high" as const)
+          : ("medium" as const);
+      return {
+        source: "graph" as const,
+        severity,
+        addresses: [p.poolAddress, p.token0.address, p.token1.address],
+        tokens: [p.token0.symbol, p.token1.symbol],
+        category,
+        message: `Pool ${p.token0.symbol}/${p.token1.symbol} unhealthy: ${p.issues.join("; ")}`,
+        raw: p,
+        ts: p.ts,
+      };
+    });
 }

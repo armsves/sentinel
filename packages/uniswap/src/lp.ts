@@ -247,6 +247,8 @@ export const V3_NPM: Record<number, `0x${string}`> = {
   42161: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
   8453: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
   137: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
+  /** Uniswap v3 NonfungiblePositionManager on Ethereum Sepolia */
+  11155111: "0x1238536071E1c677A632429e3655c799b22cDA52",
 };
 
 export async function getPositionByTokenId(
