@@ -38,6 +38,7 @@ Output schema: `score`, `shouldPanic`, `severity`, `rationale`, `whichSourcesMat
    - Uniswap API: remove/decrease liquidity for each position.
    - For each non-stable balance: quote + swap to best available of `SAFE_ASSETS`.
    - Prefer USDC; fall back USDT → DAI if liquidity/route fails.
+   - Transfer resulting stables to `SAFE_WALLET_ADDRESS` (policy `actions.transferToSafe`).
 5. Persist receipt; notify Telegram/webhook.
 
 ### Key handling (MVP)

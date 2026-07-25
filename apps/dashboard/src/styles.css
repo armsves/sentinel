@@ -296,3 +296,172 @@ fieldset.checks legend {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+.demo-panel {
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 55%),
+    color-mix(in srgb, var(--bg-elev) 92%, transparent);
+  padding: 1.1rem 1.25rem;
+  margin: 0 0 1.5rem;
+}
+
+.demo-panel .hint {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  max-width: 62ch;
+}
+
+.demo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+.demo-controls label {
+  min-width: 180px;
+}
+
+.demo-plan {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.demo-step {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  background: #0a0e0d;
+}
+
+.demo-step strong {
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.demo-step span {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.demo-step.done {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+
+.demo-step.failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
+}
+
+.demo-step.skipped {
+  opacity: 0.7;
+}
+
+.demo-step.planned {
+  border-style: dashed;
+}
+
+.trigger-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+@media (min-width: 900px) {
+  .trigger-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.trigger-card {
+  border: 1px solid var(--line);
+  background: #0a0e0d;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.trigger-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.activity-panel .activity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.activity-panel h2 {
+  margin: 0;
+}
+
+.live-dot {
+  font-size: 0.72rem;
+  color: var(--ok);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-dot::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--ok);
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.activity-log {
+  max-height: 360px;
+  overflow: auto;
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.activity-row {
+  border: 1px solid var(--line);
+  background: #0a0e0d;
+  padding: 0.55rem 0.7rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.activity-row time {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.activity-row span {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.activity-row.warn {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+}
+
+.activity-row.error {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
+}
+
+

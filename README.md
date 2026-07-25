@@ -40,6 +40,19 @@ pnpm cli pool-info --tokenA 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 --tokenB 
 
 Set `EXECUTION_MODE=live` only when you intend to broadcast.
 
+## Public live demo (Vercel + Upstash)
+
+The static dashboard on Vercel **cannot** share a laptop `data/*.json` file with visitors.
+For a URL anyone can click:
+
+1. Create a free [Upstash Redis](https://upstash.com) DB → copy REST URL + token
+2. In Vercel project env set `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and optionally `SAFE_WALLET_ADDRESS` / `WATCHED_POOLS` / `SUSD_ADDRESS`
+3. Redeploy
+
+Visitors can change stop-loss / depeg and hit **Fire** — the API runs a **dry-run simulation** and streams steps into the shared **Live agent feed** (Redis). No private keys on Vercel.
+
+For **real** on-chain exits during judging, use local `pnpm api` + `pnpm scanner` + `pnpm panic-worker`.
+
 ## Repo layout
 
 ```
@@ -47,7 +60,8 @@ apps/scanner     Graph + X/Blockaid polling → panic queue
 apps/executor    CLI + panic worker (withdraw/swap)
 apps/api         HTTP API for the dashboard
 apps/dashboard   Control UI
-packages/core    config, wallet, panic queue
+api/             Vercel serverless entry (same Hono app)
+packages/core    config, wallet, panic queue, Redis store
 packages/uniswap Trading API + LP API clients
 packages/graph   The Graph queries
 packages/monitors X/Blockaid exploit parsing

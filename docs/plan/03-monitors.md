@@ -54,8 +54,8 @@ Priority sources (need ≥ PANIC_CONFIRMATIONS = 2 by default):
 
 ## X / Blockaid enrollment
 
-- [ ] Create X developer app + `X_BEARER_TOKEN` (optional; fixture works without it)
-- [ ] Confirm `X_WATCH_ACCOUNTS=blockaid_` (add more handles as needed)
+- [x] Create X developer app + `X_BEARER_TOKEN` (optional; fixture works without it)
+- [x] Confirm `X_WATCH_ACCOUNTS=blockaid_` (add more handles as needed)
 - [ ] Glider Community: portal.hexens.io — add contracts, webhook URL → `/hooks/glider`
 - [ ] Forta: identify 1–2 bots relevant to Uniswap / ERC20 anomaly; poll API
-- [ ] DIY price: Graph + Chainlink as always-on depeg/crash baseline (no vendor lock)
+- [x] DIY price: Graph pool day data stop-loss + pegged-token depeg baseline (no vendor lock)

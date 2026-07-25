@@ -13,12 +13,22 @@
     "cli": "pnpm --filter @sentinel/executor start",
     "panic-worker": "pnpm --filter @sentinel/executor start panic-worker",
     "panic:simulate": "pnpm --filter @sentinel/executor start panic-simulate",
+    "demo": "pnpm --filter @sentinel/executor start demo",
     "api": "pnpm --filter @sentinel/api start",
     "dashboard": "pnpm --filter @sentinel/dashboard dev",
     "typecheck": "pnpm -r run typecheck"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@sentinel/core": "workspace:*",
+    "@sentinel/monitors": "workspace:*",
+    "@sentinel/uniswap": "workspace:*",
+    "@sentinel/zg": "workspace:*",
+    "hono": "^4.7.5",
+    "viem": "^2.28.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

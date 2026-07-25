@@ -9,6 +9,8 @@ type Health = {
   xLive: boolean;
   watchedPools: number;
   watchedPositions: number;
+  store?: string;
+  publicDemo?: boolean;
 };
 
 type PolicySettings = {
@@ -21,7 +23,11 @@ type PolicySettings = {
   minPanicSeverity: "low" | "medium" | "high" | "critical";
   slippageTolerance: number;
   executionMode: "dry_run" | "live";
-  actions: { withdrawLp: boolean; swapToStables: boolean };
+  actions: {
+    withdrawLp: boolean;
+    swapToStables: boolean;
+    transferToSafe: boolean;
+  };
   sources: {
     graph: boolean;
     x: boolean;
@@ -51,6 +57,34 @@ type Position = {
   feeTier?: number;
 };
 
+type DemoPlanStep = {
+  step: number;
+  title: string;
+  detail: string;
+  status: "planned" | "done" | "skipped" | "failed";
+};
+
+type DemoRunResult = {
+  scenario: string;
+  label: string;
+  mode: string;
+  event: { id: string; zgScore?: number; zgRationale?: string };
+  executed: boolean;
+  queueStatus?: string;
+  plan: DemoPlanStep[];
+  safeWallet: string | null;
+};
+
+type ActivityEvent = {
+  id: string;
+  ts: number;
+  agent: string;
+  phase: string;
+  level: string;
+  message: string;
+  data?: Record<string, unknown>;
+};
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
   /\/$/,
   "",
@@ -76,6 +110,17 @@ export function App() {
   const [policy, setPolicy] = useState<PolicySettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [demoScenario, setDemoScenario] = useState<"depeg" | "exploit" | "both">(
+    "depeg",
+  );
+  const [demoResult, setDemoResult] = useState<DemoRunResult | null>(null);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [stopLossPct, setStopLossPct] = useState(15);
+  const [breachPct, setBreachPct] = useState(22);
+  const [depegBps, setDepegBps] = useState(100);
+  const [breachBps, setBreachBps] = useState(180);
+  const [tvlDropPct, setTvlDropPct] = useState(25);
+  const [breachTvlPct, setBreachTvlPct] = useState(40);
   const [chatInput, setChatInput] = useState("Say hi and confirm you are running on 0G Compute.");
   const [chatLog, setChatLog] = useState<
     Array<{ role: "user" | "assistant"; content: string }>
@@ -88,8 +133,6 @@ export function App() {
   });
 
   const refresh = useCallback(async () => {
-    setBusy(true);
-    setMessage("");
     try {
       const [h, q, p, s] = await Promise.all([
         api<Health>("/api/health"),
@@ -104,18 +147,57 @@ export function App() {
       setPositions(p.positions);
       setWallet(p.address);
       setPolicy(s.policy);
+      setStopLossPct(s.policy.priceDropThresholdPct);
+      setDepegBps(s.policy.depegThresholdBps);
+      setTvlDropPct(s.policy.poolTvlDropThresholdPct);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
+    }
+  }, []);
+
+  const refreshActivity = useCallback(async () => {
+    try {
+      const res = await api<{ events: ActivityEvent[] }>("/api/activity?limit=60");
+      setActivity(res.events);
+    } catch {
+      /* keep prior */
     }
   }, []);
 
   useEffect(() => {
     void refresh();
-    const id = setInterval(() => void refresh(), 10_000);
-    return () => clearInterval(id);
-  }, [refresh]);
+    void refreshActivity();
+    const slow = setInterval(() => void refresh(), 10_000);
+    const fast = setInterval(() => void refreshActivity(), 2_000);
+    return () => {
+      clearInterval(slow);
+      clearInterval(fast);
+    };
+  }, [refresh, refreshActivity]);
+
+  useEffect(() => {
+    if (!policy) return;
+    setBreachPct((v) =>
+      v <= policy.priceDropThresholdPct
+        ? Math.max(policy.priceDropThresholdPct + 5, Math.round(policy.priceDropThresholdPct * 1.4))
+        : v,
+    );
+    setBreachBps((v) =>
+      v <= policy.depegThresholdBps ? policy.depegThresholdBps + 80 : v,
+    );
+    setBreachTvlPct((v) =>
+      v <= policy.poolTvlDropThresholdPct
+        ? Math.max(
+            policy.poolTvlDropThresholdPct + 5,
+            Math.round(policy.poolTvlDropThresholdPct * 1.4),
+          )
+        : v,
+    );
+  }, [
+    policy?.priceDropThresholdPct,
+    policy?.depegThresholdBps,
+    policy?.poolTvlDropThresholdPct,
+  ]);
 
   async function saveSettings(e: FormEvent) {
     e.preventDefault();
@@ -160,6 +242,77 @@ export function App() {
           : `Panic suppressed (cooldown/duplicate): ${res.event.id}`,
       );
       await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runPresentationDemo(execute: boolean) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const res = await api<DemoRunResult>("/api/demo/run", {
+        method: "POST",
+        body: JSON.stringify({ scenario: demoScenario, execute }),
+      });
+      setDemoResult(res);
+      setMessage(
+        execute
+          ? `Demo ${res.queueStatus ?? "done"} · ${res.event.id} · mode=${res.mode}`
+          : `Incident queued ${res.event.id} — run Execute or pnpm demo`,
+      );
+      await refresh();
+      await refreshActivity();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function triggerBot(
+    kind: "stop_loss" | "depeg" | "tvl_drop" | "exploit",
+  ) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const payload =
+        kind === "stop_loss"
+          ? {
+              kind,
+              threshold: stopLossPct,
+              value: breachPct,
+              saveThreshold: true,
+              execute: true,
+            }
+          : kind === "depeg"
+            ? {
+                kind,
+                threshold: depegBps,
+                value: breachBps,
+                saveThreshold: true,
+                execute: true,
+              }
+            : kind === "tvl_drop"
+              ? {
+                  kind,
+                  threshold: tvlDropPct,
+                  value: breachTvlPct,
+                  saveThreshold: true,
+                  execute: true,
+                }
+              : { kind, execute: true };
+
+      const res = await api<DemoRunResult>("/api/trigger", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setDemoResult(res);
+      setMessage(`Triggered ${kind} → ${res.queueStatus ?? "done"} · ${res.event.id}`);
+      await refresh();
+      await refreshActivity();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -241,6 +394,14 @@ export function App() {
         <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
           mode <strong>{policy?.executionMode ?? health?.executionMode ?? "…"}</strong>
         </div>
+        {health?.publicDemo ? (
+          <div className="pill dry">
+            demo <strong>public dry-run</strong>
+          </div>
+        ) : null}
+        <div className="pill">
+          store <strong>{health?.store ?? "…"}</strong>
+        </div>
         <div className="pill">
           min threat <strong>{policy?.minPanicSeverity ?? "…"}</strong>
         </div>
@@ -259,14 +420,181 @@ export function App() {
         </div>
       </div>
 
-      <div className="actions">
-        <button className="primary" disabled={busy} onClick={() => void simulatePanic()}>
-          Simulate Blockaid + Glider panic
-        </button>
-        <button disabled={busy} onClick={() => void refresh()}>
-          Refresh
-        </button>
-      </div>
+      <section className="panel demo-panel">
+        <h2>Trigger the bot</h2>
+        <p className="hint">
+          Set a threshold, simulate a breach past it, and the agent runs the
+          exit plan. Watch the <strong>Live agent feed</strong> below — every
+          detect → score → withdraw → swap → transfer step streams here while
+          the worker runs.
+        </p>
+        <div className="trigger-grid">
+          <div className="trigger-card">
+            <h3>Stop-loss</h3>
+            <label>
+              Threshold %
+              <input
+                type="number"
+                min={1}
+                max={90}
+                value={stopLossPct}
+                onChange={(e) => setStopLossPct(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Simulated drop %
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={breachPct}
+                onChange={(e) => setBreachPct(Number(e.target.value))}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={busy || breachPct <= stopLossPct}
+              onClick={() => void triggerBot("stop_loss")}
+            >
+              Fire stop-loss
+            </button>
+          </div>
+          <div className="trigger-card">
+            <h3>Depeg</h3>
+            <label>
+              Threshold (bps)
+              <input
+                type="number"
+                min={1}
+                max={5000}
+                value={depegBps}
+                onChange={(e) => setDepegBps(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Simulated deviation (bps)
+              <input
+                type="number"
+                min={1}
+                max={10000}
+                value={breachBps}
+                onChange={(e) => setBreachBps(Number(e.target.value))}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={busy || breachBps <= depegBps}
+              onClick={() => void triggerBot("depeg")}
+            >
+              Fire depeg
+            </button>
+          </div>
+          <div className="trigger-card">
+            <h3>TVL drop</h3>
+            <label>
+              Threshold %
+              <input
+                type="number"
+                min={1}
+                max={90}
+                value={tvlDropPct}
+                onChange={(e) => setTvlDropPct(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Simulated drop %
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={breachTvlPct}
+                onChange={(e) => setBreachTvlPct(Number(e.target.value))}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={busy || breachTvlPct <= tvlDropPct}
+              onClick={() => void triggerBot("tvl_drop")}
+            >
+              Fire TVL drop
+            </button>
+          </div>
+        </div>
+        <div className="demo-controls" style={{ marginTop: "1rem" }}>
+          <label>
+            Full scenario
+            <select
+              value={demoScenario}
+              onChange={(e) =>
+                setDemoScenario(e.target.value as "depeg" | "exploit" | "both")
+              }
+            >
+              <option value="depeg">sUSD depeg (X/Blockaid)</option>
+              <option value="exploit">sUSD exploit / drain</option>
+              <option value="both">Depeg + exploit + Glider</option>
+            </select>
+          </label>
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => void runPresentationDemo(true)}
+          >
+            ▶ Simulate incident &amp; execute
+          </button>
+          <button disabled={busy} onClick={() => void triggerBot("exploit")}>
+            Fire exploit
+          </button>
+          <button disabled={busy} onClick={() => void refresh()}>
+            Refresh
+          </button>
+        </div>
+        {demoResult ? (
+          <ol className="demo-plan">
+            {demoResult.plan.map((step) => (
+              <li key={step.step} className={`demo-step ${step.status}`}>
+                <strong>
+                  {step.status === "done"
+                    ? "✓"
+                    : step.status === "failed"
+                      ? "✗"
+                      : step.status === "skipped"
+                        ? "·"
+                        : "○"}{" "}
+                  {step.title}
+                </strong>
+                <span>{step.detail}</span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </section>
+
+      <section className="panel activity-panel">
+        <div className="activity-head">
+          <h2>Live agent feed</h2>
+          <span className="live-dot">polling 2s</span>
+        </div>
+        <p className="hint">
+          Scanner, demo triggers, and the executor publish steps here as they
+          happen — this is what you show on stage while the bot works.
+        </p>
+        <div className="activity-log">
+          {activity.length === 0 ? (
+            <p className="empty">No activity yet — fire a stop-loss or run a demo.</p>
+          ) : (
+            [...activity].reverse().map((ev) => (
+              <div key={ev.id} className={`activity-row ${ev.level}`}>
+                <time>
+                  {new Date(ev.ts).toLocaleTimeString()} · {ev.agent}/{ev.phase}
+                </time>
+                <span>{ev.message}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {message ? <pre className="msg">{message}</pre> : null}
 
       {policy ? (
         <section className="panel">
@@ -433,6 +761,22 @@ export function App() {
                   }
                 />
                 Swap residuals to stables
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={policy.actions.transferToSafe ?? true}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      actions: {
+                        ...policy.actions,
+                        transferToSafe: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Transfer stables to safe wallet
               </label>
             </fieldset>
 

@@ -1,7 +1,16 @@
 {
-  "framework": "vite",
+  "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @sentinel/dashboard build",
+  "buildCommand": "pnpm --filter @sentinel/core build && pnpm --filter @sentinel/monitors build && pnpm --filter @sentinel/uniswap build && pnpm --filter @sentinel/zg build && pnpm --filter @sentinel/dashboard build",
   "outputDirectory": "apps/dashboard/dist",
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!api$).*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
 }
