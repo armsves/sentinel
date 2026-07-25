@@ -48,8 +48,8 @@
 
 ## Phase 7 — Demo polish
 
-- [ ] Minimal dashboard or rich CLI logs
-- [ ] `panic:simulate` scenarios
+- [x] Minimal control dashboard (`apps/dashboard` + `apps/api`)
+- [ ] `panic:simulate` CLI alias (API already has `/api/panic/simulate`)
 - [ ] Fill FEEDBACK.md sponsor checkboxes
 
 ## Definition of done (this slice)

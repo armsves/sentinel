@@ -20,15 +20,22 @@ cp .env.example .env
 
 pnpm install
 
-# Terminal A — poll portfolio tokens + Uniswap pool health
+# Terminal A — poll portfolio tokens + Uniswap pool health + X/Blockaid
 pnpm scanner
 
-# Terminal B — Uniswap actions (default EXECUTION_MODE=dry_run)
+# Terminal B — panic worker (consumes queue)
+pnpm panic-worker
+
+# Terminal C — HTTP API
+pnpm api
+
+# Terminal D — control UI (http://localhost:5173)
+pnpm dashboard
+
+# Or CLI
 pnpm cli positions
+pnpm cli queue
 pnpm cli pool-info --tokenA 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 --tokenB 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 --fee 3000
-pnpm cli swap --tokenIn 0x... --tokenOut 0x... --amount 0.01 --decimals 18
-pnpm cli deposit --pool 0x... --token0 0x... --token1 0x... --amountToken 0x... --amount 1 --decimals 6
-pnpm cli withdraw --nft 123 --token0 0x... --token1 0x... --pct 100
 ```
 
 Set `EXECUTION_MODE=live` only when you intend to broadcast.
@@ -36,11 +43,14 @@ Set `EXECUTION_MODE=live` only when you intend to broadcast.
 ## Repo layout
 
 ```
-apps/scanner     Graph portfolio + pool health loop
-apps/executor    CLI for Uniswap swap / LP
-packages/core    config, wallet (viem), types
+apps/scanner     Graph + X/Blockaid polling → panic queue
+apps/executor    CLI + panic worker (withdraw/swap)
+apps/api         HTTP API for the dashboard
+apps/dashboard   Control UI
+packages/core    config, wallet, panic queue
 packages/uniswap Trading API + LP API clients
 packages/graph   The Graph queries
+packages/monitors X/Blockaid exploit parsing
 docs/plan        product plan
 .agents/skills   Uniswap AI skills
 ```

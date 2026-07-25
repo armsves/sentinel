@@ -13,6 +13,7 @@
     "cli": "pnpm --filter @sentinel/executor start",
     "panic-worker": "pnpm --filter @sentinel/executor start panic-worker",
     "api": "pnpm --filter @sentinel/api start",
+    "dashboard": "pnpm --filter @sentinel/dashboard dev",
     "typecheck": "pnpm -r run typecheck"
   },
   "engines": {

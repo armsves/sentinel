@@ -1,0 +1,263 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+
+type Health = {
+  ok: boolean;
+  chainId: number;
+  executionMode: string;
+  dryRun: boolean;
+  xAccounts: string[];
+  xLive: boolean;
+  watchedPools: number;
+  watchedPositions: number;
+};
+
+type QueueItem = {
+  event: {
+    id: string;
+    severity: string;
+    mode: string;
+    reasons: Array<{ source: string; signal: string }>;
+  };
+  status: string;
+  enqueuedAt: number;
+};
+
+type Position = {
+  protocol: string;
+  nftTokenId?: string;
+  token0Address: string;
+  token1Address: string;
+  liquidity?: string;
+  feeTier?: number;
+};
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    ...init,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? res.statusText);
+  return json as T;
+}
+
+export function App() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [wallet, setWallet] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [swap, setSwap] = useState({
+    tokenIn: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    tokenOut: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    amount: "0.01",
+    decimals: "18",
+  });
+
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const [h, q, p] = await Promise.all([
+        api<Health>("/api/health"),
+        api<{ items: QueueItem[] }>("/api/queue"),
+        api<{ address: string; positions: Position[] }>("/api/positions").catch(
+          () => ({ address: "", positions: [] as Position[] }),
+        ),
+      ]);
+      setHealth(h);
+      setQueue(q.items);
+      setPositions(p.positions);
+      setWallet(p.address);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const id = setInterval(() => void refresh(), 10_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  async function simulatePanic() {
+    setBusy(true);
+    try {
+      const res = await api<{ added: boolean; event: { id: string } }>(
+        "/api/panic/simulate",
+        { method: "POST", body: "{}" },
+      );
+      setMessage(
+        res.added
+          ? `Enqueued panic ${res.event.id}`
+          : `Panic suppressed (cooldown/duplicate): ${res.event.id}`,
+      );
+      await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runSwap(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await api<{
+        mode: string;
+        routing: string;
+        simulated: boolean;
+        hash?: string;
+      }>("/api/actions/swap", {
+        method: "POST",
+        body: JSON.stringify({
+          tokenIn: swap.tokenIn,
+          tokenOut: swap.tokenOut,
+          amount: swap.amount,
+          decimals: Number(swap.decimals),
+        }),
+      });
+      setMessage(
+        JSON.stringify(
+          {
+            mode: res.mode,
+            routing: res.routing,
+            simulated: res.simulated,
+            hash: res.hash,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="shell">
+      <h1 className="brand">SENTINEL</h1>
+      <p className="tagline">
+        Panic-button control surface. Watch Graph pool health and Blockaid/X
+        exploits, then exit Uniswap liquidity toward stables.
+      </p>
+
+      <div className="status-row">
+        <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
+          mode <strong>{health?.executionMode ?? "…"}</strong>
+        </div>
+        <div className="pill">
+          chain <strong>{health?.chainId ?? "…"}</strong>
+        </div>
+        <div className="pill">
+          x feed{" "}
+          <strong>
+            {health
+              ? health.xLive
+                ? `@${health.xAccounts.join(", @")}`
+                : "fixture"
+              : "…"}
+          </strong>
+        </div>
+        <div className="pill">
+          wallet <strong>{wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "unset"}</strong>
+        </div>
+      </div>
+
+      <div className="actions">
+        <button className="primary" disabled={busy} onClick={() => void simulatePanic()}>
+          Simulate Blockaid panic
+        </button>
+        <button disabled={busy} onClick={() => void refresh()}>
+          Refresh
+        </button>
+      </div>
+
+      <div className="grid">
+        <section className="panel">
+          <h2>Panic queue</h2>
+          {queue.length === 0 ? (
+            <p className="empty">No panic events yet.</p>
+          ) : (
+            <ul className="list">
+              {queue
+                .slice()
+                .reverse()
+                .map((item) => (
+                  <li key={item.event.id} className="item">
+                    <div>
+                      <span className={`sev-${item.event.severity}`}>
+                        {item.event.severity}
+                      </span>{" "}
+                      · {item.status} · {item.event.mode}
+                    </div>
+                    <div className="meta">
+                      {item.event.id}
+                      <br />
+                      {item.event.reasons
+                        .map((r) => `${r.source}: ${r.signal.slice(0, 100)}`)
+                        .join(" · ")}
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="panel">
+          <h2>Uniswap positions</h2>
+          {positions.length === 0 ? (
+            <p className="empty">No v3 positions found (or RPC/wallet unset).</p>
+          ) : (
+            <ul className="list">
+              {positions.map((p) => (
+                <li key={p.nftTokenId ?? `${p.token0Address}-${p.liquidity}`} className="item">
+                  <div>
+                    {p.protocol} NFT #{p.nftTokenId} · fee {p.feeTier}
+                  </div>
+                  <div className="meta">
+                    {p.token0Address.slice(0, 10)}… / {p.token1Address.slice(0, 10)}…
+                    <br />
+                    liquidity {p.liquidity}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <section className="panel" style={{ marginTop: "1.25rem" }}>
+        <h2>Dry-run swap</h2>
+        <form className="form" onSubmit={(e) => void runSwap(e)}>
+          <input
+            value={swap.tokenIn}
+            onChange={(e) => setSwap({ ...swap, tokenIn: e.target.value })}
+            placeholder="tokenIn"
+          />
+          <input
+            value={swap.tokenOut}
+            onChange={(e) => setSwap({ ...swap, tokenOut: e.target.value })}
+            placeholder="tokenOut"
+          />
+          <input
+            value={swap.amount}
+            onChange={(e) => setSwap({ ...swap, amount: e.target.value })}
+            placeholder="amount"
+          />
+          <button className="primary" disabled={busy} type="submit">
+            Quote / swap via Uniswap API
+          </button>
+        </form>
+      </section>
+
+      {message ? <pre className="msg">{message}</pre> : null}
+    </div>
+  );
+}
