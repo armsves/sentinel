@@ -10,26 +10,28 @@ Sentinel = always-on DeFi panic button: detect exploit / depeg / crash signals �
 
 ### Uniswap
 
-- [ ] Valid API key from [Uniswap Developer Platform](https://developers.uniswap.org/docs)
-- [ ] Core functionality via Uniswap API (not raw router-only hacks): quote, route, swap, and/or LP coordination
+- [x] Valid API key from [Uniswap Developer Platform](https://developers.uniswap.org/docs) (in `.env`)
+- [x] Skills installed: `swap-integration`, `lp-integration`, `viem-integration`
+- [x] Core functionality via Uniswap API: Trading API swap + LP API create/decrease + pool_info + on-chain positions
 - [ ] Demo: panic exit of a watched position → swap into stable
 - [ ] Optional stretch: tokenized stocks as watched risk assets (new Uniswap API asset class)
 - [ ] Notes / blockers:
 
 ```
-(add during build)
+Need live RPC_URL + funded wallet for live txs. Default EXECUTION_MODE=dry_run.
+CLI: pnpm cli swap|deposit|withdraw|positions|pool-info
 ```
 
 ### The Graph
 
-- [ ] Live blockchain data source for token/pool monitoring ([hackathon resources](https://thegraph.com/blog/hackathon-resources/))
-- [ ] Preferred path: Subgraph MCP and/or GraphQL against Uniswap / Messari standardized subgraphs
+- [x] Live blockchain data source for token/pool monitoring ([hackathon resources](https://thegraph.com/blog/hackathon-resources/))
+- [x] GraphQL against Uniswap v3 Ethereum subgraph (`GRAPH_UNISWAP_SUBGRAPH`) — portfolio tokens + pool health poller in `apps/scanner`
 - [ ] Optional: Substreams for high-frequency pool events; x402 pay-per-query
 - [ ] Track target: **Best AI Use Case of The Graph** (risk monitor / execution agent)
 - [ ] Notes / blockers:
 
 ```
-(add during build)
+Set GRAPH_API_KEY. Scanner: pnpm scanner
 ```
 
 ### 0G Compute

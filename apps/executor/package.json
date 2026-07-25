@@ -1,0 +1,22 @@
+{
+  "name": "@sentinel/executor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/cli.ts",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@sentinel/core": "workspace:*",
+    "@sentinel/uniswap": "workspace:*",
+    "viem": "^2.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

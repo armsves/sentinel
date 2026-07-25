@@ -27,6 +27,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# keep Uniswap AI skills in-repo; ignore only local agent caches
+.agents/.cache/
+
 # agent state
 data/
 *.sqlite
