@@ -22,7 +22,7 @@ import {
   postsToSignals,
   type GliderWebhookPayload,
 } from "@sentinel/monitors";
-import { scoreSignalsWith0G } from "@sentinel/zg";
+import { scoreSignalsWith0G, chatWith0G } from "@sentinel/zg";
 import {
   executeSwap,
   listOwnerPositions,
@@ -149,6 +149,30 @@ app.post("/api/glider/simulate", async (c) => {
   }
   const added = await enqueuePanic(event);
   return c.json({ added, event, signal });
+});
+
+app.post("/api/chat", async (c) => {
+  const body = await c.req.json<{
+    message?: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  }>();
+  const message = body.message?.trim();
+  if (!message) return c.json({ error: "message is required" }, 400);
+  try {
+    const result = await chatWith0G({
+      message,
+      history: body.history?.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
 });
 
 app.post("/api/actions/swap", async (c) => {

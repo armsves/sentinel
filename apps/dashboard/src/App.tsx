@@ -71,6 +71,10 @@ export function App() {
   const [policy, setPolicy] = useState<PolicySettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [chatInput, setChatInput] = useState("Say hi and confirm you are running on 0G Compute.");
+  const [chatLog, setChatLog] = useState<
+    Array<{ role: "user" | "assistant"; content: string }>
+  >([]);
   const [swap, setSwap] = useState({
     tokenIn: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     tokenOut: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -153,6 +157,42 @@ export function App() {
       await refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runChat(e: FormEvent) {
+    e.preventDefault();
+    const text = chatInput.trim();
+    if (!text) return;
+    setBusy(true);
+    const nextHistory = [...chatLog, { role: "user" as const, content: text }];
+    setChatLog(nextHistory);
+    setChatInput("");
+    try {
+      const res = await api<{ reply: string; model: string; provider: string }>(
+        "/api/chat",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            message: text,
+            history: nextHistory.slice(0, -1),
+          }),
+        },
+      );
+      setChatLog([
+        ...nextHistory,
+        { role: "assistant", content: `${res.reply}\n\n— ${res.provider} · ${res.model}` },
+      ]);
+    } catch (err) {
+      setChatLog([
+        ...nextHistory,
+        {
+          role: "assistant",
+          content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -481,6 +521,35 @@ export function App() {
           )}
         </section>
       </div>
+
+      <section className="panel" style={{ marginTop: "1.25rem" }}>
+        <h2>Chat with Sentinel (0G)</h2>
+        <p className="empty" style={{ marginBottom: "0.75rem" }}>
+          Requires <code>ZG_ROUTER_API_KEY</code> in <code>.env</code>. Use this to verify 0G Compute.
+        </p>
+        <div className="chat-log">
+          {chatLog.length === 0 ? (
+            <p className="empty">No messages yet.</p>
+          ) : (
+            chatLog.map((m, i) => (
+              <div key={`${m.role}-${i}`} className={`chat-bubble ${m.role}`}>
+                <strong>{m.role === "user" ? "you" : "sentinel"}</strong>
+                <pre>{m.content}</pre>
+              </div>
+            ))
+          )}
+        </div>
+        <form className="form" onSubmit={(e) => void runChat(e)}>
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Ask Sentinel something…"
+          />
+          <button className="primary" disabled={busy || !chatInput.trim()} type="submit">
+            Send via 0G
+          </button>
+        </form>
+      </section>
 
       <section className="panel" style={{ marginTop: "1.25rem" }}>
         <h2>Dry-run swap</h2>

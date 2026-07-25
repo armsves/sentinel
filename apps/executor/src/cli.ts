@@ -22,7 +22,7 @@ import {
   getPositionByTokenId,
   listOwnerPositions,
 } from "@sentinel/uniswap";
-import { scoreSignalsWith0G } from "@sentinel/zg";
+import { scoreSignalsWith0G, chatWith0G } from "@sentinel/zg";
 import { parseUnits } from "viem";
 import { printQueue, processOnePanic, runPanicWorker } from "./panicWorker.js";
 
@@ -40,10 +40,12 @@ Usage:
   pnpm cli panic-simulate [--source x|glider|both]
   pnpm cli panic-once
   pnpm cli panic-worker
+  pnpm cli chat --message "hello"
 
 Env:
   EXECUTION_MODE=dry_run|live   (default dry_run)
   UNISWAP_API_KEY, RPC_URL, PRIVATE_KEY, CHAIN_ID
+  ZG_ROUTER_API_KEY (for chat / scoring)
 `);
   process.exit(1);
 }
@@ -218,6 +220,12 @@ async function cmdPoolInfo(argv: string[]) {
   console.log(JSON.stringify(info, null, 2));
 }
 
+async function cmdChat(argv: string[]) {
+  const message = requireArg("--message", argv);
+  const result = await chatWith0G({ message });
+  console.log(JSON.stringify(result, null, 2));
+}
+
 async function cmdPanicSimulate(argv: string[]) {
   const source = (arg("--source", argv) ?? "both") as "x" | "glider" | "both";
   const signals = [];
@@ -279,6 +287,9 @@ async function main() {
       break;
     case "panic-worker":
       await runPanicWorker();
+      break;
+    case "chat":
+      await cmdChat(argv);
       break;
     default:
       usage();

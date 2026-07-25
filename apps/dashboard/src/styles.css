@@ -243,6 +243,45 @@ fieldset.checks legend {
   width: auto;
 }
 
+.chat-log {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.chat-bubble {
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  padding: 0.7rem 0.8rem;
+}
+
+.chat-bubble.user {
+  border-color: #2f4038;
+}
+
+.chat-bubble.assistant {
+  border-color: #3a4a28;
+}
+
+.chat-bubble strong {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-bubble pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .msg {
   margin-top: 1rem;
   padding: 0.75rem;
