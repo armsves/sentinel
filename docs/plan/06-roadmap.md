@@ -42,9 +42,9 @@
 
 ## Phase 6 — Panic orchestration
 
-- [ ] Queue PanicEvent scanner → executor
-- [ ] Auto withdraw + swap to SAFE_ASSETS on confirmed panic
-- [ ] Dry-run demo path + optional live tiny exit
+- [x] Queue PanicEvent scanner → executor (`data/panic-queue.json`)
+- [x] Panic worker: withdraw LP + swap residuals → SAFE_ASSETS (dry_run default)
+- [ ] Optional live tiny exit on funded wallet
 
 ## Phase 7 — Demo polish
 

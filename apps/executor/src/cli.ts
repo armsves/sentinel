@@ -14,6 +14,7 @@ import {
   listOwnerPositions,
 } from "@sentinel/uniswap";
 import { parseUnits } from "viem";
+import { printQueue, processOnePanic, runPanicWorker } from "./panicWorker.js";
 
 function usage(): never {
   console.log(`
@@ -25,6 +26,9 @@ Usage:
   pnpm cli withdraw --nft <tokenId> --token0 <addr> --token1 <addr> --pct 100 [--protocol V3]
   pnpm cli positions [--nft <tokenId>]
   pnpm cli pool-info --tokenA <addr> --tokenB <addr> [--fee 3000] [--protocol V3]
+  pnpm cli queue
+  pnpm cli panic-once
+  pnpm cli panic-worker
 
 Env:
   EXECUTION_MODE=dry_run|live   (default dry_run)
@@ -229,6 +233,15 @@ async function main() {
       break;
     case "pool-info":
       await cmdPoolInfo(argv);
+      break;
+    case "queue":
+      await printQueue();
+      break;
+    case "panic-once":
+      await processOnePanic();
+      break;
+    case "panic-worker":
+      await runPanicWorker();
       break;
     default:
       usage();
