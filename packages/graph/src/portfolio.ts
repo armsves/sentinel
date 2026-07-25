@@ -1,9 +1,4 @@
-import {
-  getConfig,
-  type NormalizedSignal,
-  type PoolHealth,
-  type PortfolioToken,
-} from "@sentinel/core";
+import { getEffectiveConfig, logger, type NormalizedSignal, type PoolHealth, type PortfolioToken } from "@sentinel/core";
 import { erc20Abi, formatUnits, type PublicClient, type Chain, type Transport } from "viem";
 import { graphQuery } from "./client.js";
 
@@ -117,8 +112,8 @@ type GPool = {
   poolDayData?: Array<{ date: number; volumeUSD: string; tvlUSD: string }>;
 };
 
-function assessPool(pool: GPool): PoolHealth {
-  const cfg = getConfig();
+async function assessPool(pool: GPool): Promise<PoolHealth> {
+  const cfg = await getEffectiveConfig();
   const tvlUsd = Number(pool.totalValueLockedUSD || 0);
   const issues: string[] = [];
   const day = pool.poolDayData ?? [];
@@ -226,14 +221,14 @@ export async function fetchPoolHealthByIds(poolIds: string[]): Promise<PoolHealt
   const data = await graphQuery<{ pools: GPool[] }>(POOLS_BY_ID_QUERY, {
     ids: poolIds.map((p) => p.toLowerCase()),
   });
-  return data.pools.map(assessPool);
+  return Promise.all(data.pools.map((p) => assessPool(p)));
 }
 
 export async function fetchPoolsForPortfolioTokens(
   tokenAddresses: string[],
 ): Promise<PoolHealth[]> {
   if (!tokenAddresses.length) return [];
-  const cfg = getConfig();
+  const cfg = await getEffectiveConfig();
   const tokens = tokenAddresses.map((t) => t.toLowerCase());
   const minTvl = String(Math.max(1000, cfg.POOL_MIN_TVL_USD / 10));
   const [a, b] = await Promise.all([
@@ -242,7 +237,7 @@ export async function fetchPoolsForPortfolioTokens(
   ]);
   const byId = new Map<string, GPool>();
   for (const p of [...a.pools, ...b.pools]) byId.set(p.id, p);
-  return [...byId.values()].map(assessPool);
+  return Promise.all([...byId.values()].map((p) => assessPool(p)));
 }
 
 export function poolHealthToSignals(pools: PoolHealth[]): NormalizedSignal[] {

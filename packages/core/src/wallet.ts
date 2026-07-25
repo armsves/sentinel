@@ -79,7 +79,3 @@ export function createClients(opts?: {
     address: account.address,
   };
 }
-
-export function isDryRun(): boolean {
-  return getConfig().EXECUTION_MODE !== "live";
-}

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, appendFile, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getConfig } from "./config.js";
+import { loadPolicySettings, severityRank } from "./settings.js";
 import type { NormalizedSignal, PanicEvent, Severity } from "./types.js";
 
 export type QueueItem = {
@@ -34,11 +35,7 @@ async function saveQueue(items: QueueItem[]): Promise<void> {
   await rename(tmp, path);
 }
 
-function rankSeverity(s: Severity): number {
-  return { low: 1, medium: 2, high: 3, critical: 4 }[s];
-}
-
-export function buildPanicEvent(
+export async function buildPanicEvent(
   signals: NormalizedSignal[],
   opts?: {
     positions?: PanicEvent["positions"];
@@ -46,27 +43,37 @@ export function buildPanicEvent(
     zgRationale?: string;
     zgShouldPanic?: boolean;
   },
-): PanicEvent | null {
+): Promise<PanicEvent | null> {
   if (!signals.length) return null;
   const cfg = getConfig();
+  const policy = await loadPolicySettings();
   const sources = new Set(signals.map((s) => s.source));
   const maxSev = signals.reduce<Severity>(
-    (acc, s) => (rankSeverity(s.severity) > rankSeverity(acc) ? s.severity : acc),
+    (acc, s) => (severityRank(s.severity) > severityRank(acc) ? s.severity : acc),
     "low",
   );
 
-  const zgBoost =
-    opts?.zgShouldPanic === true && (opts.zgScore ?? 0) >= 0.8 && signals.length >= 1;
+  if (severityRank(maxSev) < severityRank(policy.minPanicSeverity)) {
+    return null;
+  }
 
+  const zgBoost =
+    opts?.zgShouldPanic === true &&
+    (opts.zgScore ?? 0) >= 0.8 &&
+    signals.length >= 1 &&
+    policy.sources.zg;
+
+  const needed = policy.panicConfirmations || cfg.PANIC_CONFIRMATIONS;
   const confirmed =
-    sources.size >= cfg.PANIC_CONFIRMATIONS ||
+    sources.size >= needed ||
     (maxSev === "critical" && sources.has("x")) ||
     (maxSev === "critical" && sources.has("glider")) ||
     zgBoost;
 
+  const mode = policy.executionMode || cfg.EXECUTION_MODE;
   if (!confirmed && maxSev !== "critical") return null;
-  if (!confirmed && cfg.PANIC_CONFIRMATIONS > 1 && maxSev === "critical" && sources.size === 1) {
-    if (cfg.EXECUTION_MODE !== "dry_run") return null;
+  if (!confirmed && needed > 1 && maxSev === "critical" && sources.size === 1) {
+    if (mode !== "dry_run") return null;
   }
 
   const id = createHash("sha256")
@@ -94,10 +101,8 @@ export function buildPanicEvent(
       },
     })),
     positions: opts?.positions ?? [],
-    targetStables: cfg.safeAssets.filter((a): a is "USDC" | "USDT" | "DAI" =>
-      ["USDC", "USDT", "DAI"].includes(a),
-    ),
-    mode: cfg.EXECUTION_MODE,
+    targetStables: policy.safeAssets,
+    mode,
     zgScore: opts?.zgScore,
     zgRationale: opts?.zgRationale,
   };
@@ -105,7 +110,6 @@ export function buildPanicEvent(
 
 export async function enqueuePanic(event: PanicEvent): Promise<boolean> {
   const items = await loadQueue();
-  // idempotent on reason fingerprint prefix
   const fingerprint = event.id.split("-")[0];
   const recent = items.find(
     (i) =>

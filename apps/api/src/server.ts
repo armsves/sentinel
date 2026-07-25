@@ -6,10 +6,14 @@ import {
   createClients,
   enqueuePanic,
   getConfig,
-  isDryRun,
+  getEffectiveConfig,
+  isDryRunAsync,
   listQueue,
+  loadPolicySettings,
   logger,
+  savePolicySettings,
   type NormalizedSignal,
+  type PolicySettings,
 } from "@sentinel/core";
 import {
   BLOCKAID_VERUS_FIXTURE,
@@ -38,18 +42,37 @@ function checkGliderSecret(header: string | undefined): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }
-app.get("/api/health", (c) => {
-  const cfg = getConfig();
+app.get("/api/health", async (c) => {
+  const cfg = await getEffectiveConfig();
+  const policy = await loadPolicySettings();
   return c.json({
     ok: true,
     chainId: cfg.CHAIN_ID,
     executionMode: cfg.EXECUTION_MODE,
-    dryRun: isDryRun(),
+    dryRun: cfg.EXECUTION_MODE !== "live",
     xAccounts: cfg.xWatchAccounts,
     xLive: Boolean(cfg.X_BEARER_TOKEN),
     watchedPools: cfg.watchedPools.length,
     watchedPositions: cfg.watchedPositionIds.length,
+    policy,
   });
+});
+
+app.get("/api/settings", async (c) => {
+  const policy = await loadPolicySettings();
+  return c.json({ policy });
+});
+
+app.put("/api/settings", async (c) => {
+  const body = await c.req.json<Partial<PolicySettings>>();
+  const policy = await savePolicySettings(body);
+  logger.info("policy settings updated", {
+    safeAssets: policy.safeAssets,
+    minPanicSeverity: policy.minPanicSeverity,
+    priceDropThresholdPct: policy.priceDropThresholdPct,
+    executionMode: policy.executionMode,
+  });
+  return c.json({ policy });
 });
 
 app.get("/api/queue", async (c) => {
@@ -86,7 +109,7 @@ app.post("/api/panic/simulate", async (c) => {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
   const zg = await scoreSignalsWith0G(signals);
-  const event = buildPanicEvent(signals, {
+  const event = await buildPanicEvent(signals, {
     zgScore: zg.score,
     zgRationale: zg.rationale,
     zgShouldPanic: zg.shouldPanic,
@@ -110,7 +133,7 @@ app.post("/hooks/glider", async (c) => {
     message: signal.message,
     addresses: signal.addresses,
   });
-  const event = buildPanicEvent([signal]);
+  const event = await buildPanicEvent([signal]);
   if (!event) {
     return c.json({ ok: true, enqueued: false, signal });
   }
@@ -120,7 +143,7 @@ app.post("/hooks/glider", async (c) => {
 
 app.post("/api/glider/simulate", async (c) => {
   const signal = normalizeGliderWebhook(GLIDER_FIXTURE);
-  const event = buildPanicEvent([signal]);
+  const event = await buildPanicEvent([signal]);
   if (!event) {
     return c.json({ error: "policy rejected glider fixture" }, 400);
   }
@@ -136,7 +159,8 @@ app.post("/api/actions/swap", async (c) => {
     decimals?: number;
   }>();
   try {
-    const cfg = getConfig();
+    const cfg = await getEffectiveConfig();
+    const dryRun = await isDryRunAsync();
     const { publicClient, walletClient, address } = createClients({
       requireSigner: true,
     });
@@ -156,7 +180,7 @@ app.post("/api/actions/swap", async (c) => {
       },
       walletClient,
       publicClient,
-      dryRun: isDryRun(),
+      dryRun,
     });
     return c.json({
       mode: cfg.EXECUTION_MODE,

@@ -2,9 +2,10 @@ import {
   completeItem,
   createClients,
   dequeuePending,
-  getConfig,
-  isDryRun,
+  getEffectiveConfig,
+  isDryRunAsync,
   listQueue,
+  loadPolicySettings,
   logger,
   type PanicEvent,
 } from "@sentinel/core";
@@ -17,8 +18,10 @@ import { erc20Abi } from "viem";
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as const;
 
-function stableAddress(symbol: string): `0x${string}` | null {
-  const cfg = getConfig();
+function stableAddress(
+  symbol: string,
+  cfg: Awaited<ReturnType<typeof getEffectiveConfig>>,
+): `0x${string}` | null {
   if (symbol === "USDC") return cfg.USDC_ADDRESS as `0x${string}`;
   if (symbol === "USDT") return cfg.USDT_ADDRESS as `0x${string}`;
   if (symbol === "DAI") return cfg.DAI_ADDRESS as `0x${string}`;
@@ -26,13 +29,14 @@ function stableAddress(symbol: string): `0x${string}` | null {
 }
 
 async function flightToStables(event: PanicEvent) {
-  const cfg = getConfig();
+  const cfg = await getEffectiveConfig();
+  const policy = await loadPolicySettings();
   const { publicClient, walletClient, address } = createClients({
     requireSigner: true,
   });
   if (!walletClient || !address) throw new Error("signer required");
 
-  const dryRun = isDryRun() || event.mode === "dry_run";
+  const dryRun = (await isDryRunAsync()) || event.mode === "dry_run";
   const positions = await listOwnerPositions(publicClient, address);
   const watched = new Set(cfg.watchedPositionIds);
   const targets =
@@ -45,32 +49,44 @@ async function flightToStables(event: PanicEvent) {
     targeting: targets.length,
     dryRun,
     panicId: event.id,
+    withdrawLp: policy.actions.withdrawLp,
+    swapToStables: policy.actions.swapToStables,
+    safeAssets: policy.safeAssets,
   });
 
-  for (const pos of targets) {
-    if (!pos.nftTokenId) continue;
-    if (pos.liquidity === "0") continue;
-    try {
-      await decreasePosition({
-        params: {
-          walletAddress: address,
-          protocol: pos.protocol,
-          chainId: cfg.CHAIN_ID,
-          token0Address: pos.token0Address as `0x${string}`,
-          token1Address: pos.token1Address as `0x${string}`,
-          nftTokenId: pos.nftTokenId,
-          liquidityPercentageToDecrease: 100,
-        },
-        walletClient,
-        publicClient,
-        dryRun,
-      });
-    } catch (err) {
-      logger.error("decrease failed", {
-        nft: pos.nftTokenId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  if (policy.actions.withdrawLp) {
+    for (const pos of targets) {
+      if (!pos.nftTokenId) continue;
+      if (pos.liquidity === "0") continue;
+      try {
+        await decreasePosition({
+          params: {
+            walletAddress: address,
+            protocol: pos.protocol,
+            chainId: cfg.CHAIN_ID,
+            token0Address: pos.token0Address as `0x${string}`,
+            token1Address: pos.token1Address as `0x${string}`,
+            nftTokenId: pos.nftTokenId,
+            liquidityPercentageToDecrease: 100,
+          },
+          walletClient,
+          publicClient,
+          dryRun,
+        });
+      } catch (err) {
+        logger.error("decrease failed", {
+          nft: pos.nftTokenId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
+  } else {
+    logger.info("skipping LP withdraw (disabled in settings)");
+  }
+
+  if (!policy.actions.swapToStables) {
+    logger.info("skipping swap-to-stables (disabled in settings)");
+    return;
   }
 
   const tokenSet = new Set<string>();
@@ -80,9 +96,12 @@ async function flightToStables(event: PanicEvent) {
   }
   for (const t of cfg.portfolioTokens) tokenSet.add(t.toLowerCase());
 
+  const targetStables = event.targetStables.length
+    ? event.targetStables
+    : policy.safeAssets;
   const safe = new Set(
-    event.targetStables
-      .map(stableAddress)
+    targetStables
+      .map((s) => stableAddress(s, cfg))
       .filter(Boolean)
       .map((a) => a!.toLowerCase()),
   );
@@ -104,8 +123,8 @@ async function flightToStables(event: PanicEvent) {
     if (balance === 0n) continue;
 
     let swapped = false;
-    for (const stableSym of event.targetStables) {
-      const out = stableAddress(stableSym);
+    for (const stableSym of targetStables) {
+      const out = stableAddress(stableSym, cfg);
       if (!out) continue;
       try {
         await executeSwap({
@@ -136,7 +155,6 @@ async function flightToStables(event: PanicEvent) {
     }
   }
 }
-
 export async function processOnePanic(): Promise<boolean> {
   const item = await dequeuePending();
   if (!item) return false;
@@ -158,8 +176,9 @@ export async function processOnePanic(): Promise<boolean> {
 }
 
 export async function runPanicWorker(intervalMs = 5000) {
+  const cfg = await getEffectiveConfig();
   logger.info("panic worker starting", {
-    mode: getConfig().EXECUTION_MODE,
+    mode: cfg.EXECUTION_MODE,
     intervalMs,
   });
   const tick = async () => {

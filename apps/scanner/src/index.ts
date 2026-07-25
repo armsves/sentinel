@@ -3,6 +3,7 @@ import {
   createClients,
   enqueuePanic,
   getConfig,
+  loadPolicySettings,
   logger,
   type NormalizedSignal,
 } from "@sentinel/core";
@@ -114,24 +115,29 @@ function relevanceBoost(
 
 async function scanOnce(): Promise<NormalizedSignal[]> {
   const cfg = getConfig();
-  const graphPart = await scanGraph().catch((err) => {
-    logger.error("graph scan failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return {
-      signals: [] as NormalizedSignal[],
-      heldSymbols: new Set<string>(),
-    };
-  });
+  const policy = await loadPolicySettings();
+  const graphPart = policy.sources.graph
+    ? await scanGraph().catch((err) => {
+        logger.error("graph scan failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return {
+          signals: [] as NormalizedSignal[],
+          heldSymbols: new Set<string>(),
+        };
+      })
+    : { signals: [] as NormalizedSignal[], heldSymbols: new Set<string>() };
 
-  const xSignals = await pollXExploitSignals().catch((err) => {
-    logger.error("x scan failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return [] as NormalizedSignal[];
-  });
+  const xSignals = policy.sources.x
+    ? await pollXExploitSignals().catch((err) => {
+        logger.error("x scan failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [] as NormalizedSignal[];
+      })
+    : [];
 
-  const fortaSignals = await pollFortaAlerts();
+  const fortaSignals = policy.sources.forta ? await pollFortaAlerts() : [];
 
   const boostedX = relevanceBoost(
     xSignals,
@@ -143,7 +149,17 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
 }
 
 async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
-  const zg = await scoreSignalsWith0G(signals);
+  const policy = await loadPolicySettings();
+  const zg = policy.sources.zg
+    ? await scoreSignalsWith0G(signals)
+    : {
+        score: 0,
+        shouldPanic: false,
+        severity: "low" as const,
+        rationale: "0G scoring disabled in settings",
+        whichSourcesMatter: [] as string[],
+        provider: "heuristic-fallback" as const,
+      };
   logger.info("0G risk score", {
     provider: zg.provider,
     score: zg.score,
@@ -151,7 +167,7 @@ async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
     severity: zg.severity,
     rationale: zg.rationale,
   });
-  const event = buildPanicEvent(signals, {
+  const event = await buildPanicEvent(signals, {
     zgScore: zg.score,
     zgRationale: zg.rationale,
     zgShouldPanic: zg.shouldPanic,

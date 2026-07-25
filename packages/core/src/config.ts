@@ -113,10 +113,11 @@ export type SentinelConfig = z.infer<typeof envSchema> & {
   xWatchAccounts: string[];
 };
 
+import { loadPolicySettings } from "./settings.js";
+
 let cached: SentinelConfig | null = null;
 
-export function getConfig(force = false): SentinelConfig {
-  if (cached && !force) return cached;
+function buildFromEnv(): SentinelConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
     const issues = parsed.error.issues
@@ -129,7 +130,7 @@ export function getConfig(force = false): SentinelConfig {
   const usdc = normalizeOptionalAddress(e.USDC_ADDRESS) || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
   const usdt = normalizeOptionalAddress(e.USDT_ADDRESS) || "0xdAC17F958D2ee523a2206206994597C13D831ec7";
   const dai = normalizeOptionalAddress(e.DAI_ADDRESS) || "0x6B175474E89094C44Da98b954EedeAC495271d0F";
-  cached = {
+  return {
     ...e,
     WALLET_ADDRESS: wallet,
     USDC_ADDRESS: usdc,
@@ -153,7 +154,44 @@ export function getConfig(force = false): SentinelConfig {
       .map((s) => s.trim().replace(/^@/, ""))
       .filter(Boolean),
   };
+}
+
+/** Sync env-backed config. Prefer getEffectiveConfig() for policy overrides. */
+export function getConfig(force = false): SentinelConfig {
+  if (cached && !force) return cached;
+  cached = buildFromEnv();
   return cached;
+}
+
+/** Env config merged with dashboard runtime policy (thresholds, stables, mode). */
+export async function getEffectiveConfig(): Promise<SentinelConfig> {
+  const base = getConfig();
+  const policy = await loadPolicySettings();
+  return {
+    ...base,
+    SAFE_ASSETS: policy.safeAssets.join(","),
+    safeAssets: policy.safeAssets,
+    PRICE_DROP_THRESHOLD_PCT: policy.priceDropThresholdPct,
+    DEPEG_THRESHOLD_BPS: policy.depegThresholdBps,
+    POOL_TVL_DROP_THRESHOLD_PCT: policy.poolTvlDropThresholdPct,
+    POOL_MIN_TVL_USD: policy.poolMinTvlUsd,
+    PANIC_CONFIRMATIONS: policy.panicConfirmations,
+    SLIPPAGE_TOLERANCE: policy.slippageTolerance,
+    EXECUTION_MODE: policy.executionMode,
+    FORTA_POLL_ENABLED: policy.sources.forta,
+    X_POLL_ENABLED: policy.sources.x,
+    ZG_SCORING_ENABLED: policy.sources.zg,
+  };
+}
+
+export function isDryRun(): boolean {
+  // sync path for CLI; async callers should check policy.executionMode
+  return getConfig().EXECUTION_MODE !== "live";
+}
+
+export async function isDryRunAsync(): Promise<boolean> {
+  const policy = await loadPolicySettings();
+  return policy.executionMode !== "live";
 }
 
 export function csvAddresses(value: string): `0x${string}`[] {

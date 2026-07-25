@@ -4,7 +4,8 @@ import {
   createClients,
   enqueuePanic,
   getConfig,
-  isDryRun,
+  getEffectiveConfig,
+  isDryRunAsync,
   logger,
 } from "@sentinel/core";
 import {
@@ -86,11 +87,11 @@ async function cmdSwap(argv: string[]) {
     },
     walletClient,
     publicClient,
-    dryRun: isDryRun(),
+    dryRun: await isDryRunAsync(),
   });
 
   logger.info("swap done", {
-    mode: cfg.EXECUTION_MODE,
+    mode: (await getEffectiveConfig()).EXECUTION_MODE,
     routing: result.quote.routing,
     hash: result.hash,
     simulated: result.simulated,
@@ -143,11 +144,11 @@ async function cmdDeposit(argv: string[]) {
     },
     walletClient,
     publicClient,
-    dryRun: isDryRun(),
+    dryRun: await isDryRunAsync(),
   });
 
   logger.info("deposit done", {
-    mode: cfg.EXECUTION_MODE,
+    mode: (await getEffectiveConfig()).EXECUTION_MODE,
     hash: result.hash,
     simulated: result.simulated,
   });
@@ -178,11 +179,11 @@ async function cmdWithdraw(argv: string[]) {
     },
     walletClient,
     publicClient,
-    dryRun: isDryRun(),
+    dryRun: await isDryRunAsync(),
   });
 
   logger.info("withdraw done", {
-    mode: cfg.EXECUTION_MODE,
+    mode: (await getEffectiveConfig()).EXECUTION_MODE,
     hash: result.hash,
     simulated: result.simulated,
   });
@@ -227,7 +228,7 @@ async function cmdPanicSimulate(argv: string[]) {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
   const zg = await scoreSignalsWith0G(signals);
-  const event = buildPanicEvent(signals, {
+  const event = await buildPanicEvent(signals, {
     zgScore: zg.score,
     zgRationale: zg.rationale,
     zgShouldPanic: zg.shouldPanic,
