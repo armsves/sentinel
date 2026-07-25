@@ -13,14 +13,14 @@
 - [x] Shared types + config + viem wallet helpers
 - [x] `EXECUTION_MODE=dry_run` default
 
-## Phase 2 — Uniswap execution (current)
+## Phase 2 — Uniswap execution
 
 - [x] Trading API: quote → approval → swap
 - [x] LP API: create (deposit), decrease (withdraw), pool_info
 - [x] Position check via NPM `positions` / `tokenOfOwnerByIndex`
 - [x] Executor CLI: `swap | deposit | withdraw | positions | pool-info`
 
-## Phase 3 — Graph data plane (current)
+## Phase 3 — Graph data plane
 
 - [x] Poll portfolio ERC-20 balances + subgraph token meta
 - [x] Poll Uniswap v3 pools for watched tokens / watched pool IDs
@@ -31,14 +31,14 @@
 
 - [x] X / Blockaid monitor (`@sentinel/monitors`) + fixture
 - [x] Scanner fuses Graph pool health + X exploit signals
-- [ ] Glider webhook adapter
-- [ ] Forta poll **or** Defimon WS
-- [ ] Panic confirmations + queue to executor
+- [x] Glider webhook adapter (`/hooks/glider` + fixture simulate)
+- [x] Optional Forta poll (`FORTA_POLL_ENABLED`)
+- [x] Panic confirmations + queue to executor
 
 ## Phase 5 — Intelligence (0G)
 
-- [ ] Router client OpenAI-compatible
-- [ ] Structured JSON scoring wired into Panic Policy
+- [x] Router client OpenAI-compatible (`@sentinel/zg`)
+- [x] Structured JSON scoring wired into Panic Policy (+ heuristic fallback)
 
 ## Phase 6 — Panic orchestration
 
@@ -49,11 +49,12 @@
 ## Phase 7 — Demo polish
 
 - [x] Minimal control dashboard (`apps/dashboard` + `apps/api`)
-- [ ] `panic:simulate` CLI alias (API already has `/api/panic/simulate`)
-- [ ] Fill FEEDBACK.md sponsor checkboxes
+- [x] `pnpm panic:simulate` CLI (+ API `/api/panic/simulate`)
+- [x] Fill FEEDBACK.md sponsor checkboxes
 
-## Definition of done (this slice)
+## Stretch (if time)
 
-1. Uniswap skills installed in-repo.
-2. CLI can dry-run swap / deposit / withdraw and read positions.
-3. Scanner polls The Graph for portfolio tokens + pool health on an interval.
+- [ ] Messari standardized subgraphs / Substreams
+- [ ] Tokenized stocks watchlist via Uniswap API
+- [ ] Safe / session-key upgrade
+- [ ] Defimon WebSocket feed
