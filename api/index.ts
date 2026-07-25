@@ -1,7 +1,6 @@
 /**
  * Vercel serverless entry — same Hono app as local `pnpm api`.
- * Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN in Vercel env
- * so settings/activity persist for public visitors.
+ * Dynamic import avoids ERR_REQUIRE_ESM when Vercel wraps the handler as CJS.
  */
 import { handle } from "hono/vercel";
 
@@ -9,7 +8,7 @@ if (process.env.VERCEL) {
   process.env.PUBLIC_DEMO ??= "true";
 }
 
-// Built workspace packages (vercel buildCommand compiles them)
-import { app } from "../apps/api/src/server.js";
+const appModule = await import("../apps/api/src/server.js");
+const handler = handle(appModule.app);
 
-export default handle(app);
+export default handler;
