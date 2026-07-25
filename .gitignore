@@ -26,6 +26,7 @@ coverage/
 *.swp
 .DS_Store
 Thumbs.db
+.vercel/
 
 # keep Uniswap AI skills in-repo; ignore only local agent caches
 .agents/.cache/
