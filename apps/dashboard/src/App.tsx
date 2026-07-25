@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
+type Page = "home" | "control" | "config" | "portfolio";
+
 type Health = {
   ok: boolean;
   chainId: number;
   executionMode: string;
   dryRun: boolean;
-  xAccounts: string[];
-  xLive: boolean;
+  xAccounts?: string[];
+  xLive?: boolean;
   watchedPools: number;
-  watchedPositions: number;
+  watchedPositions?: number;
   store?: string;
   publicDemo?: boolean;
+  safeWallet?: string | null;
 };
 
 type PolicySettings = {
@@ -51,10 +54,20 @@ type QueueItem = {
 type Position = {
   protocol: string;
   nftTokenId?: string;
+  pool?: string;
   token0Address: string;
   token1Address: string;
   liquidity?: string;
   feeTier?: number;
+  note?: string;
+};
+
+type PositionsPayload = {
+  address: string;
+  positions: Position[];
+  safeWallet?: string | null;
+  watchedPools?: string[];
+  publicDemo?: boolean;
 };
 
 type DemoPlanStep = {
@@ -90,6 +103,15 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.repl
   "",
 ) ?? "";
 
+const NAV: Array<{ id: Page; label: string }> = [
+  { id: "home", label: "Home" },
+  { id: "control", label: "Control" },
+  { id: "config", label: "Configuration" },
+  { id: "portfolio", label: "Portfolio" },
+];
+
+const STABLES: Array<"USDC" | "USDT" | "DAI"> = ["USDC", "USDT", "DAI"];
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -100,13 +122,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
-const STABLES: Array<"USDC" | "USDT" | "DAI"> = ["USDC", "USDT", "DAI"];
+function shortAddr(addr: string) {
+  if (!addr || addr.length < 12) return addr || "unset";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
 
 export function App() {
+  const [page, setPage] = useState<Page>("home");
   const [health, setHealth] = useState<Health | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [wallet, setWallet] = useState<string>("");
+  const [watchedPools, setWatchedPools] = useState<string[]>([]);
+  const [wallet, setWallet] = useState("");
+  const [safeWallet, setSafeWallet] = useState<string | null>(null);
   const [policy, setPolicy] = useState<PolicySettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -121,7 +149,9 @@ export function App() {
   const [breachBps, setBreachBps] = useState(180);
   const [tvlDropPct, setTvlDropPct] = useState(25);
   const [breachTvlPct, setBreachTvlPct] = useState(40);
-  const [chatInput, setChatInput] = useState("Say hi and confirm you are running on 0G Compute.");
+  const [chatInput, setChatInput] = useState(
+    "Say hi and confirm you are running on 0G Compute.",
+  );
   const [chatLog, setChatLog] = useState<
     Array<{ role: "user" | "assistant"; content: string }>
   >([]);
@@ -137,15 +167,17 @@ export function App() {
       const [h, q, p, s] = await Promise.all([
         api<Health>("/api/health"),
         api<{ items: QueueItem[] }>("/api/queue"),
-        api<{ address: string; positions: Position[] }>("/api/positions").catch(
-          () => ({ address: "", positions: [] as Position[] }),
+        api<PositionsPayload>("/api/positions").catch(
+          (): PositionsPayload => ({ address: "", positions: [] }),
         ),
         api<{ policy: PolicySettings }>("/api/settings"),
       ]);
       setHealth(h);
       setQueue(q.items);
       setPositions(p.positions);
+      setWatchedPools(p.watchedPools ?? []);
       setWallet(p.address);
+      setSafeWallet(p.safeWallet ?? h.safeWallet ?? null);
       setPolicy(s.policy);
       setStopLossPct(s.policy.priceDropThresholdPct);
       setDepegBps(s.policy.depegThresholdBps);
@@ -179,7 +211,10 @@ export function App() {
     if (!policy) return;
     setBreachPct((v) =>
       v <= policy.priceDropThresholdPct
-        ? Math.max(policy.priceDropThresholdPct + 5, Math.round(policy.priceDropThresholdPct * 1.4))
+        ? Math.max(
+            policy.priceDropThresholdPct + 5,
+            Math.round(policy.priceDropThresholdPct * 1.4),
+          )
         : v,
     );
     setBreachBps((v) =>
@@ -224,29 +259,8 @@ export function App() {
     const next = has
       ? policy.safeAssets.filter((s) => s !== sym)
       : [...policy.safeAssets, sym];
-    // preserve priority order USDC, USDT, DAI
     const ordered = STABLES.filter((s) => next.includes(s));
     setPolicy({ ...policy, safeAssets: ordered.length ? ordered : ["USDC"] });
-  }
-
-  async function simulatePanic() {
-    setBusy(true);
-    try {
-      const res = await api<{ added: boolean; event: { id: string } }>(
-        "/api/panic/simulate",
-        { method: "POST", body: "{}" },
-      );
-      setMessage(
-        res.added
-          ? `Enqueued panic ${res.event.id}`
-          : `Panic suppressed (cooldown/duplicate): ${res.event.id}`,
-      );
-      await refresh();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function runPresentationDemo(execute: boolean) {
@@ -261,7 +275,7 @@ export function App() {
       setMessage(
         execute
           ? `Demo ${res.queueStatus ?? "done"} · ${res.event.id} · mode=${res.mode}`
-          : `Incident queued ${res.event.id} — run Execute or pnpm demo`,
+          : `Incident queued ${res.event.id}`,
       );
       await refresh();
       await refreshActivity();
@@ -341,7 +355,10 @@ export function App() {
       );
       setChatLog([
         ...nextHistory,
-        { role: "assistant", content: `${res.reply}\n\n— ${res.provider} · ${res.model}` },
+        {
+          role: "assistant",
+          content: `${res.reply}\n\n— ${res.provider} · ${res.model}`,
+        },
       ]);
     } catch (err) {
       setChatLog([
@@ -384,49 +401,269 @@ export function App() {
 
   return (
     <div className="shell">
-      <h1 className="brand">SENTINEL</h1>
-      <p className="tagline">
-        Panic-button control surface. Tune threat thresholds and exit actions,
-        then let the agent withdraw Uniswap liquidity toward stables.
-      </p>
+      <header className="topbar">
+        <button
+          type="button"
+          className="brand-mark"
+          onClick={() => setPage("home")}
+          aria-label="Sentinel home"
+        >
+          SENTINEL
+        </button>
+        <nav className="nav" aria-label="Main">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={page === item.id ? "nav-link active" : "nav-link"}
+              onClick={() => setPage(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      <div className="status-row">
-        <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
-          mode <strong>{policy?.executionMode ?? health?.executionMode ?? "…"}</strong>
-        </div>
-        {health?.publicDemo ? (
-          <div className="pill dry">
-            demo <strong>public dry-run</strong>
+      {page !== "home" ? (
+        <div className="status-row compact">
+          <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
+            mode{" "}
+            <strong>{policy?.executionMode ?? health?.executionMode ?? "…"}</strong>
           </div>
-        ) : null}
-        <div className="pill">
-          store <strong>{health?.store ?? "…"}</strong>
+          {health?.publicDemo ? (
+            <div className="pill dry">
+              demo <strong>public dry-run</strong>
+            </div>
+          ) : null}
+          <div className="pill">
+            store <strong>{health?.store ?? "…"}</strong>
+          </div>
+          <div className="pill">
+            stop-loss{" "}
+            <strong>{policy ? `${policy.priceDropThresholdPct}%` : "…"}</strong>
+          </div>
+          <div className="pill">
+            exit <strong>{policy?.safeAssets.join(" → ") ?? "…"}</strong>
+          </div>
         </div>
-        <div className="pill">
-          min threat <strong>{policy?.minPanicSeverity ?? "…"}</strong>
+      ) : null}
+
+      {message && page !== "home" ? <pre className="msg">{message}</pre> : null}
+
+      {page === "home" ? (
+        <HomePage
+          onOpenControl={() => setPage("control")}
+          onOpenConfig={() => setPage("config")}
+          onOpenPortfolio={() => setPage("portfolio")}
+        />
+      ) : null}
+
+      {page === "control" ? (
+        <ControlPage
+          busy={busy}
+          stopLossPct={stopLossPct}
+          setStopLossPct={setStopLossPct}
+          breachPct={breachPct}
+          setBreachPct={setBreachPct}
+          depegBps={depegBps}
+          setDepegBps={setDepegBps}
+          breachBps={breachBps}
+          setBreachBps={setBreachBps}
+          tvlDropPct={tvlDropPct}
+          setTvlDropPct={setTvlDropPct}
+          breachTvlPct={breachTvlPct}
+          setBreachTvlPct={setBreachTvlPct}
+          demoScenario={demoScenario}
+          setDemoScenario={setDemoScenario}
+          demoResult={demoResult}
+          activity={activity}
+          triggerBot={triggerBot}
+          runPresentationDemo={runPresentationDemo}
+          refresh={refresh}
+        />
+      ) : null}
+
+      {page === "config" ? (
+        <ConfigPage
+          policy={policy}
+          setPolicy={setPolicy}
+          busy={busy}
+          saveSettings={saveSettings}
+          toggleStable={toggleStable}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          chatLog={chatLog}
+          runChat={runChat}
+          swap={swap}
+          setSwap={setSwap}
+          runSwap={runSwap}
+          publicDemo={Boolean(health?.publicDemo)}
+        />
+      ) : null}
+
+      {page === "portfolio" ? (
+        <PortfolioPage
+          wallet={wallet}
+          safeWallet={safeWallet}
+          positions={positions}
+          watchedPools={watchedPools}
+          queue={queue}
+          health={health}
+          policy={policy}
+          publicDemo={Boolean(health?.publicDemo)}
+          onRefresh={() => void refresh()}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function HomePage({
+  onOpenControl,
+  onOpenConfig,
+  onOpenPortfolio,
+}: {
+  onOpenControl: () => void;
+  onOpenConfig: () => void;
+  onOpenPortfolio: () => void;
+}) {
+  return (
+    <div className="home">
+      <section className="hero">
+        <p className="hero-kicker">ETHGlobal Lisbon 2026</p>
+        <h1 className="brand hero-brand">SENTINEL</h1>
+        <p className="hero-lead">
+          Panic-button liquidity guardian. Always-on agents watch Uniswap LP for
+          exploits, depegs, and pool failures — then exit to stables and a safe
+          wallet.
+        </p>
+        <div className="hero-cta">
+          <button type="button" className="primary" onClick={onOpenControl}>
+            Open control
+          </button>
+          <button type="button" onClick={onOpenConfig}>
+            Configure policy
+          </button>
+          <button type="button" onClick={onOpenPortfolio}>
+            Check portfolio
+          </button>
         </div>
-        <div className="pill">
-          stop-loss <strong>{policy ? `${policy.priceDropThresholdPct}%` : "…"}</strong>
-        </div>
-        <div className="pill">
-          exit{" "}
-          <strong>{policy?.safeAssets.join(" → ") ?? "…"}</strong>
-        </div>
-        <div className="pill">
-          wallet{" "}
-          <strong>
-            {wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "unset"}
-          </strong>
-        </div>
-      </div>
+      </section>
+
+      <section className="panel home-section">
+        <h2>What it does</h2>
+        <p className="prose">
+          Sentinel is a DeFi flight-to-safety agent. When threat signals cross
+          your thresholds, it withdraws Uniswap v3 liquidity, swaps residuals
+          into stables, and optionally transfers funds to a cold/safe address —
+          without waiting for a human to click through a wallet UI.
+        </p>
+      </section>
+
+      <section className="panel home-section">
+        <h2>How the loop works</h2>
+        <ol className="flow-list">
+          <li>
+            <strong>Watch</strong> — The Graph pool health, Blockaid/X intel,
+            Glider webhooks, and optional Forta.
+          </li>
+          <li>
+            <strong>Score</strong> — 0G Compute ranks severity and whether to
+            panic.
+          </li>
+          <li>
+            <strong>Exit</strong> — Withdraw LP → swap to USDC/USDT/DAI →
+            transfer to safe wallet.
+          </li>
+        </ol>
+      </section>
+
+      <section className="panel home-section">
+        <h2>Stack</h2>
+        <ul className="stack-list">
+          <li>Uniswap Trading + LP APIs</li>
+          <li>The Graph Uniswap v3 subgraph</li>
+          <li>0G Compute for threat scoring</li>
+          <li>Hexens Glider + Blockaid/X signals</li>
+          <li>Upstash Redis for shared public demo state</li>
+        </ul>
+      </section>
+
+      <section className="panel home-section">
+        <h2>Try it</h2>
+        <p className="prose">
+          On this public demo, firing a stop-loss runs a dry-run exit plan and
+          streams every step into the live agent feed. For real on-chain exits,
+          run the local scanner, API, and panic worker with your wallet keys.
+        </p>
+        <button type="button" className="primary" onClick={onOpenControl}>
+          Fire a simulated incident
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function ControlPage(props: {
+  busy: boolean;
+  stopLossPct: number;
+  setStopLossPct: (n: number) => void;
+  breachPct: number;
+  setBreachPct: (n: number) => void;
+  depegBps: number;
+  setDepegBps: (n: number) => void;
+  breachBps: number;
+  setBreachBps: (n: number) => void;
+  tvlDropPct: number;
+  setTvlDropPct: (n: number) => void;
+  breachTvlPct: number;
+  setBreachTvlPct: (n: number) => void;
+  demoScenario: "depeg" | "exploit" | "both";
+  setDemoScenario: (s: "depeg" | "exploit" | "both") => void;
+  demoResult: DemoRunResult | null;
+  activity: ActivityEvent[];
+  triggerBot: (kind: "stop_loss" | "depeg" | "tvl_drop" | "exploit") => void;
+  runPresentationDemo: (execute: boolean) => void;
+  refresh: () => Promise<void>;
+}) {
+  const {
+    busy,
+    stopLossPct,
+    setStopLossPct,
+    breachPct,
+    setBreachPct,
+    depegBps,
+    setDepegBps,
+    breachBps,
+    setBreachBps,
+    tvlDropPct,
+    setTvlDropPct,
+    breachTvlPct,
+    setBreachTvlPct,
+    demoScenario,
+    setDemoScenario,
+    demoResult,
+    activity,
+    triggerBot,
+    runPresentationDemo,
+    refresh,
+  } = props;
+
+  return (
+    <>
+      <section className="page-head">
+        <h1>Control</h1>
+        <p className="tagline">
+          Simulate a breach past your thresholds and watch the agent exit plan
+          stream live.
+        </p>
+      </section>
 
       <section className="panel demo-panel">
         <h2>Trigger the bot</h2>
         <p className="hint">
-          Set a threshold, simulate a breach past it, and the agent runs the
-          exit plan. Watch the <strong>Live agent feed</strong> below — every
-          detect → score → withdraw → swap → transfer step streams here while
-          the worker runs.
+          Set a threshold, simulate a breach past it, then fire. Steps appear in
+          the live agent feed as detect → score → withdraw → swap → transfer.
         </p>
         <div className="trigger-grid">
           <div className="trigger-card">
@@ -576,7 +813,7 @@ export function App() {
         </div>
         <p className="hint">
           Scanner, demo triggers, and the executor publish steps here as they
-          happen — this is what you show on stage while the bot works.
+          happen.
         </p>
         <div className="activity-log">
           {activity.length === 0 ? (
@@ -593,8 +830,60 @@ export function App() {
           )}
         </div>
       </section>
+    </>
+  );
+}
 
-      {message ? <pre className="msg">{message}</pre> : null}
+function ConfigPage(props: {
+  policy: PolicySettings | null;
+  setPolicy: (p: PolicySettings) => void;
+  busy: boolean;
+  saveSettings: (e: FormEvent) => void;
+  toggleStable: (sym: "USDC" | "USDT" | "DAI") => void;
+  chatInput: string;
+  setChatInput: (v: string) => void;
+  chatLog: Array<{ role: "user" | "assistant"; content: string }>;
+  runChat: (e: FormEvent) => void;
+  swap: {
+    tokenIn: string;
+    tokenOut: string;
+    amount: string;
+    decimals: string;
+  };
+  setSwap: (s: {
+    tokenIn: string;
+    tokenOut: string;
+    amount: string;
+    decimals: string;
+  }) => void;
+  runSwap: (e: FormEvent) => void;
+  publicDemo: boolean;
+}) {
+  const {
+    policy,
+    setPolicy,
+    busy,
+    saveSettings,
+    toggleStable,
+    chatInput,
+    setChatInput,
+    chatLog,
+    runChat,
+    swap,
+    setSwap,
+    runSwap,
+    publicDemo,
+  } = props;
+
+  return (
+    <>
+      <section className="page-head">
+        <h1>Configuration</h1>
+        <p className="tagline">
+          Thresholds, exit actions, and signal sources the agents read every
+          tick.
+        </p>
+      </section>
 
       {policy ? (
         <section className="panel">
@@ -608,7 +897,8 @@ export function App() {
                   onChange={(e) =>
                     setPolicy({
                       ...policy,
-                      minPanicSeverity: e.target.value as PolicySettings["minPanicSeverity"],
+                      minPanicSeverity: e.target
+                        .value as PolicySettings["minPanicSeverity"],
                     })
                   }
                 >
@@ -684,6 +974,21 @@ export function App() {
               </label>
 
               <label>
+                Min pool TVL (USD)
+                <input
+                  type="number"
+                  min={0}
+                  value={policy.poolMinTvlUsd}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      poolMinTvlUsd: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+
+              <label>
                 Panic confirmations (# sources)
                 <input
                   type="number"
@@ -740,7 +1045,10 @@ export function App() {
                   onChange={(e) =>
                     setPolicy({
                       ...policy,
-                      actions: { ...policy.actions, withdrawLp: e.target.checked },
+                      actions: {
+                        ...policy.actions,
+                        withdrawLp: e.target.checked,
+                      },
                     })
                   }
                 />
@@ -798,7 +1106,10 @@ export function App() {
                     onChange={(e) =>
                       setPolicy({
                         ...policy,
-                        sources: { ...policy.sources, [key]: e.target.checked },
+                        sources: {
+                          ...policy.sources,
+                          [key]: e.target.checked,
+                        },
                       })
                     }
                   />
@@ -807,18 +1118,227 @@ export function App() {
               ))}
             </fieldset>
 
+            {publicDemo ? (
+              <p className="hint">
+                Public demo forces <code>dry_run</code>. Live execution only
+                runs on your local API with keys.
+              </p>
+            ) : null}
+
             <button className="primary" disabled={busy} type="submit">
               Save policy
             </button>
           </form>
         </section>
-      ) : null}
+      ) : (
+        <p className="empty">Loading settings…</p>
+      )}
+
+      <section className="panel" style={{ marginTop: "1.5rem" }}>
+        <h2>Chat with Sentinel (0G)</h2>
+        <p className="empty" style={{ marginBottom: "0.75rem" }}>
+          Requires <code>ZG_ROUTER_API_KEY</code> on the local API.
+        </p>
+        <div className="chat-log">
+          {chatLog.length === 0 ? (
+            <p className="empty">No messages yet.</p>
+          ) : (
+            chatLog.map((m, i) => (
+              <div key={`${m.role}-${i}`} className={`chat-bubble ${m.role}`}>
+                <strong>{m.role === "user" ? "you" : "sentinel"}</strong>
+                <pre>{m.content}</pre>
+              </div>
+            ))
+          )}
+        </div>
+        <form className="form" onSubmit={(e) => void runChat(e)}>
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Ask Sentinel something…"
+          />
+          <button
+            className="primary"
+            disabled={busy || !chatInput.trim()}
+            type="submit"
+          >
+            Send via 0G
+          </button>
+        </form>
+      </section>
+
+      <section className="panel" style={{ marginTop: "1.5rem" }}>
+        <h2>Dry-run swap</h2>
+        <form className="form" onSubmit={(e) => void runSwap(e)}>
+          <input
+            value={swap.tokenIn}
+            onChange={(e) => setSwap({ ...swap, tokenIn: e.target.value })}
+            placeholder="tokenIn"
+          />
+          <input
+            value={swap.tokenOut}
+            onChange={(e) => setSwap({ ...swap, tokenOut: e.target.value })}
+            placeholder="tokenOut"
+          />
+          <input
+            value={swap.amount}
+            onChange={(e) => setSwap({ ...swap, amount: e.target.value })}
+            placeholder="amount"
+          />
+          <button className="primary" disabled={busy} type="submit">
+            Quote / swap via Uniswap API
+          </button>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function PortfolioPage(props: {
+  wallet: string;
+  safeWallet: string | null;
+  positions: Position[];
+  watchedPools: string[];
+  queue: QueueItem[];
+  health: Health | null;
+  policy: PolicySettings | null;
+  publicDemo: boolean;
+  onRefresh: () => void;
+}) {
+  const {
+    wallet,
+    safeWallet,
+    positions,
+    watchedPools,
+    queue,
+    health,
+    policy,
+    publicDemo,
+    onRefresh,
+  } = props;
+
+  return (
+    <>
+      <section className="page-head">
+        <h1>Portfolio</h1>
+        <p className="tagline">
+          Hot wallet, safe destination, watched pools, and open Uniswap
+          positions the agent can exit.
+        </p>
+        <button type="button" onClick={onRefresh}>
+          Refresh
+        </button>
+      </section>
+
+      <div className="grid portfolio-summary">
+        <section className="panel">
+          <h2>Wallets</h2>
+          <dl className="kv">
+            <div>
+              <dt>Hot wallet</dt>
+              <dd>{wallet ? shortAddr(wallet) : "unset"}</dd>
+            </div>
+            <div>
+              <dt>Safe wallet</dt>
+              <dd>{safeWallet ? shortAddr(safeWallet) : "unset"}</dd>
+            </div>
+            <div>
+              <dt>Chain</dt>
+              <dd>{health?.chainId ?? "…"}</dd>
+            </div>
+            <div>
+              <dt>Flight path</dt>
+              <dd>{policy?.safeAssets.join(" → ") ?? "…"}</dd>
+            </div>
+          </dl>
+          {publicDemo ? (
+            <p className="hint" style={{ marginTop: "0.85rem" }}>
+              Public demo shows configured watch targets. Live NFT positions
+              require the local API with RPC + wallet.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="panel">
+          <h2>Watched pools</h2>
+          {watchedPools.length === 0 ? (
+            <p className="empty">
+              No pools in <code>WATCHED_POOLS</code>
+              {health?.watchedPools
+                ? ` (health reports ${health.watchedPools}).`
+                : "."}
+            </p>
+          ) : (
+            <ul className="list">
+              {watchedPools.map((pool) => (
+                <li key={pool} className="item">
+                  <div>Uniswap v3 pool</div>
+                  <div className="meta mono">{pool}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
 
       <div className="grid" style={{ marginTop: "1.25rem" }}>
         <section className="panel">
+          <h2>Uniswap positions</h2>
+          {positions.length === 0 ? (
+            <p className="empty">
+              No v3 positions found
+              {publicDemo ? " on this public demo endpoint" : " (or RPC/wallet unset)"}
+              .
+            </p>
+          ) : (
+            <ul className="list">
+              {positions.map((p) => (
+                <li
+                  key={
+                    p.nftTokenId ??
+                    p.pool ??
+                    `${p.token0Address}-${p.liquidity}`
+                  }
+                  className="item"
+                >
+                  <div>
+                    {p.protocol}
+                    {p.nftTokenId ? ` NFT #${p.nftTokenId}` : ""}
+                    {p.feeTier != null ? ` · fee ${p.feeTier}` : ""}
+                  </div>
+                  <div className="meta">
+                    {p.pool ? (
+                      <>
+                        pool {shortAddr(p.pool)}
+                        <br />
+                      </>
+                    ) : null}
+                    {p.token0Address
+                      ? `${shortAddr(p.token0Address)} / ${shortAddr(p.token1Address)}`
+                      : null}
+                    {p.liquidity ? (
+                      <>
+                        <br />
+                        liquidity {p.liquidity}
+                      </>
+                    ) : null}
+                    {p.note ? (
+                      <>
+                        <br />
+                        {p.note}
+                      </>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="panel">
           <h2>Panic queue</h2>
           {queue.length === 0 ? (
-            <p className="empty">No panic events yet.</p>
+            <p className="empty">No panic events queued.</p>
           ) : (
             <ul className="list">
               {queue
@@ -844,87 +1364,7 @@ export function App() {
             </ul>
           )}
         </section>
-
-        <section className="panel">
-          <h2>Uniswap positions</h2>
-          {positions.length === 0 ? (
-            <p className="empty">No v3 positions found (or RPC/wallet unset).</p>
-          ) : (
-            <ul className="list">
-              {positions.map((p) => (
-                <li
-                  key={p.nftTokenId ?? `${p.token0Address}-${p.liquidity}`}
-                  className="item"
-                >
-                  <div>
-                    {p.protocol} NFT #{p.nftTokenId} · fee {p.feeTier}
-                  </div>
-                  <div className="meta">
-                    {p.token0Address.slice(0, 10)}… / {p.token1Address.slice(0, 10)}…
-                    <br />
-                    liquidity {p.liquidity}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       </div>
-
-      <section className="panel" style={{ marginTop: "1.25rem" }}>
-        <h2>Chat with Sentinel (0G)</h2>
-        <p className="empty" style={{ marginBottom: "0.75rem" }}>
-          Requires <code>ZG_ROUTER_API_KEY</code> in <code>.env</code>. Use this to verify 0G Compute.
-        </p>
-        <div className="chat-log">
-          {chatLog.length === 0 ? (
-            <p className="empty">No messages yet.</p>
-          ) : (
-            chatLog.map((m, i) => (
-              <div key={`${m.role}-${i}`} className={`chat-bubble ${m.role}`}>
-                <strong>{m.role === "user" ? "you" : "sentinel"}</strong>
-                <pre>{m.content}</pre>
-              </div>
-            ))
-          )}
-        </div>
-        <form className="form" onSubmit={(e) => void runChat(e)}>
-          <input
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Ask Sentinel something…"
-          />
-          <button className="primary" disabled={busy || !chatInput.trim()} type="submit">
-            Send via 0G
-          </button>
-        </form>
-      </section>
-
-      <section className="panel" style={{ marginTop: "1.25rem" }}>
-        <h2>Dry-run swap</h2>
-        <form className="form" onSubmit={(e) => void runSwap(e)}>
-          <input
-            value={swap.tokenIn}
-            onChange={(e) => setSwap({ ...swap, tokenIn: e.target.value })}
-            placeholder="tokenIn"
-          />
-          <input
-            value={swap.tokenOut}
-            onChange={(e) => setSwap({ ...swap, tokenOut: e.target.value })}
-            placeholder="tokenOut"
-          />
-          <input
-            value={swap.amount}
-            onChange={(e) => setSwap({ ...swap, amount: e.target.value })}
-            placeholder="amount"
-          />
-          <button className="primary" disabled={busy} type="submit">
-            Quote / swap via Uniswap API
-          </button>
-        </form>
-      </section>
-
-      {message ? <pre className="msg">{message}</pre> : null}
-    </div>
+    </>
   );
 }

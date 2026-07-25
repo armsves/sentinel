@@ -79,7 +79,59 @@ input {
 .shell {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 4rem;
+  padding: 1.25rem 1.25rem 4rem;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand-mark {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+}
+
+.brand-mark:hover {
+  color: var(--text);
+  border: none;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.nav-link {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.nav-link:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.nav-link.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .brand {
@@ -91,11 +143,127 @@ input {
   margin: 0 0 0.5rem;
 }
 
+.page-head {
+  margin-bottom: 1.5rem;
+}
+
+.page-head h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.4rem;
+}
+
 .tagline {
   color: var(--muted);
-  margin: 0 0 2rem;
+  margin: 0 0 1rem;
   max-width: 36rem;
   line-height: 1.5;
+}
+
+.hero {
+  min-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2rem 0 3rem;
+  margin-bottom: 1rem;
+  background:
+    radial-gradient(ellipse 70% 55% at 15% 20%, #243a1c 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 10%, #3a2218 0%, transparent 50%);
+}
+
+.hero-kicker {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-brand {
+  margin-bottom: 1rem;
+  color: var(--accent);
+}
+
+.hero-lead {
+  margin: 0 0 1.75rem;
+  max-width: 34rem;
+  font-size: clamp(1rem, 2.4vw, 1.2rem);
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.home-section {
+  margin-top: 0.5rem;
+  padding-top: 1.5rem;
+}
+
+.prose {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.flow-list,
+.stack-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 0.9rem;
+  max-width: 58ch;
+}
+
+.flow-list strong {
+  color: var(--text);
+}
+
+.kv {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.kv > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.kv dt {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kv dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  max-width: 62ch;
 }
 
 .status-row {
@@ -103,6 +271,10 @@ input {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-bottom: 2rem;
+}
+
+.status-row.compact {
+  margin-bottom: 1.25rem;
 }
 
 .pill {
