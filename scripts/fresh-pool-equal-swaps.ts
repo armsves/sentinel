@@ -1,0 +1,480 @@
+/**
+ * Withdraw all LP, create fresh USDC/sUSD pool (fee 3000), seed $500 volume.
+ * Peg rule: every cycle is exactly ONE swap each way with the SAME amountIn.
+ *
+ * Run: pnpm exec tsx scripts/fresh-pool-equal-swaps.ts
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  createPublicClient,
+  createWalletClient,
+  encodeFunctionData,
+  formatUnits,
+  http,
+  maxUint128,
+  parseAbi,
+  type Hex,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+
+const USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as const;
+const SUSD = "0xC084E80E4E546561f4348198ebfC1fe7b714DB37" as const;
+const FACTORY = "0x0227628f3F023bb0B980b67D528571c95c6DaC1c" as const;
+const NPM = "0x1238536071E1c677A632429e3655c799b22cDA52" as const;
+const ROUTER = "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E" as const;
+
+const FEE = 3000; // fresh pool (100 and 500 already used/depegged)
+const SQRT_PRICE_X96 = 79228162514264337593543950336n; // 1:1
+// fee 3000 → tickSpacing 60
+const TICK_LOWER = -887220;
+const TICK_UPPER = 887220;
+
+const TARGET_VOLUME = 500;
+const AMOUNT = 1_000_000n; // $1 each way — identical amountIn both directions
+const MAX_ABS_TICK = 15; // stop if peg drifts
+const GAS = 500_000n;
+
+const factoryAbi = parseAbi([
+  "function getPool(address,address,uint24) view returns (address)",
+  "function createPool(address,address,uint24) returns (address)",
+]);
+const poolAbi = parseAbi([
+  "function initialize(uint160 sqrtPriceX96)",
+  "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
+  "function liquidity() view returns (uint128)",
+]);
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+]);
+const npmAbi = parseAbi([
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function positions(uint256 tokenId) view returns (uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)",
+  "function decreaseLiquidity((uint256 tokenId,uint128 liquidity,uint256 amount0Min,uint256 amount1Min,uint256 deadline))",
+  "function collect((uint256 tokenId,address recipient,uint128 amount0Max,uint128 amount1Max))",
+  "function mint((address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint256 amount0Desired,uint256 amount1Desired,uint256 amount0Min,uint256 amount1Min,address recipient,uint256 deadline)) payable returns (uint256,uint128,uint256,uint256)",
+  "function multicall(bytes[] data) payable returns (bytes[] results)",
+]);
+const routerAbi = parseAbi([
+  "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) payable returns (uint256)",
+  "function multicall(bytes[] data) payable returns (bytes[] results)",
+]);
+
+function loadEnv() {
+  const env: Record<string, string> = {};
+  for (const line of readFileSync(".env", "utf8").split("\n")) {
+    if (!line || line.startsWith("#") || !line.includes("=")) continue;
+    const i = line.indexOf("=");
+    env[line.slice(0, i)] = line.slice(i + 1).trim();
+  }
+  return env;
+}
+
+function sortTokens(a: `0x${string}`, b: `0x${string}`) {
+  return a.toLowerCase() < b.toLowerCase() ? ([a, b] as const) : ([b, a] as const);
+}
+
+async function main() {
+  const env = loadEnv();
+  let pk = env.PRIVATE_KEY;
+  if (!pk.startsWith("0x")) pk = `0x${pk}`;
+  const account = privateKeyToAccount(pk as Hex);
+  const transport = http(env.RPC_URL);
+  const publicClient = createPublicClient({ chain: sepolia, transport });
+  const walletClient = createWalletClient({ account, chain: sepolia, transport });
+  const me = account.address;
+  const [token0, token1] = sortTokens(USDC, SUSD);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 7200);
+
+  console.log({ step: "withdraw-all-lp", me });
+
+  // --- Withdraw every NFT with liquidity ---
+  const nftCount = await publicClient.readContract({
+    address: NPM,
+    abi: npmAbi,
+    functionName: "balanceOf",
+    args: [me],
+  });
+  for (let i = 0; i < Number(nftCount); i++) {
+    const tokenId = await publicClient.readContract({
+      address: NPM,
+      abi: npmAbi,
+      functionName: "tokenOfOwnerByIndex",
+      args: [me, BigInt(i)],
+    });
+    const pos = await publicClient.readContract({
+      address: NPM,
+      abi: npmAbi,
+      functionName: "positions",
+      args: [tokenId],
+    });
+    const liq = pos[7];
+    if (liq === 0n) {
+      console.log("skip empty nft", tokenId.toString());
+      continue;
+    }
+    const calls: Hex[] = [
+      encodeFunctionData({
+        abi: npmAbi,
+        functionName: "decreaseLiquidity",
+        args: [{ tokenId, liquidity: liq, amount0Min: 0n, amount1Min: 0n, deadline }],
+      }),
+      encodeFunctionData({
+        abi: npmAbi,
+        functionName: "collect",
+        args: [
+          {
+            tokenId,
+            recipient: me,
+            amount0Max: maxUint128,
+            amount1Max: maxUint128,
+          },
+        ],
+      }),
+    ];
+    const hash = await walletClient.writeContract({
+      address: NPM,
+      abi: npmAbi,
+      functionName: "multicall",
+      args: [calls],
+      gas: GAS,
+    });
+    await publicClient.waitForTransactionReceipt({ hash });
+    console.log("withdrew nft", tokenId.toString(), hash);
+  }
+
+  const usdcBal = await publicClient.readContract({
+    address: USDC,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [me],
+  });
+  const susdBal = await publicClient.readContract({
+    address: SUSD,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [me],
+  });
+  console.log({
+    afterWithdraw: {
+      usdc: formatUnits(usdcBal, 6),
+      susd: formatUnits(susdBal, 6),
+    },
+  });
+
+  // --- Fresh pool fee 3000 @ 1:1 ---
+  let pool = await publicClient.readContract({
+    address: FACTORY,
+    abi: factoryAbi,
+    functionName: "getPool",
+    args: [token0, token1, FEE],
+  });
+  if (pool === "0x0000000000000000000000000000000000000000") {
+    const hash = await walletClient.writeContract({
+      address: FACTORY,
+      abi: factoryAbi,
+      functionName: "createPool",
+      args: [token0, token1, FEE],
+      gas: 3_000_000n,
+    });
+    const rc = await publicClient.waitForTransactionReceipt({ hash });
+    if (rc.status !== "success") {
+      throw new Error(`createPool reverted ${hash}`);
+    }
+    pool = await publicClient.readContract({
+      address: FACTORY,
+      abi: factoryAbi,
+      functionName: "getPool",
+      args: [token0, token1, FEE],
+    });
+    if (pool === "0x0000000000000000000000000000000000000000") {
+      throw new Error("createPool succeeded but getPool is zero");
+    }
+    console.log("created pool", pool, hash);
+  } else {
+    console.log("pool exists", pool);
+  }
+
+  const slot0 = await publicClient.readContract({
+    address: pool,
+    abi: poolAbi,
+    functionName: "slot0",
+  });
+  if (slot0[0] === 0n) {
+    const hash = await walletClient.writeContract({
+      address: pool,
+      abi: poolAbi,
+      functionName: "initialize",
+      args: [SQRT_PRICE_X96],
+      gas: GAS,
+    });
+    await publicClient.waitForTransactionReceipt({ hash });
+    console.log("initialized 1:1", hash);
+  } else if (slot0[1] !== 0) {
+    throw new Error(
+      `Pool ${pool} already initialized off-peg (tick=${slot0[1]}). Pick another fee.`,
+    );
+  } else {
+    console.log("already at tick 0");
+  }
+
+  for (const [token, spender] of [
+    [USDC, NPM],
+    [SUSD, NPM],
+    [USDC, ROUTER],
+    [SUSD, ROUTER],
+  ] as const) {
+    const allowance = await publicClient.readContract({
+      address: token,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [me, spender],
+    });
+    if (allowance < 10n ** 24n) {
+      const hash = await walletClient.writeContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [spender, 2n ** 256n - 1n],
+        gas: GAS,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+    }
+  }
+
+  // Deep LP: use most USDC, keep $5 float for equal-amount swaps
+  const usdcNow = await publicClient.readContract({
+    address: USDC,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [me],
+  });
+  const float = 5_000_000n;
+  const lpAmount = usdcNow > float + 20_000_000n ? usdcNow - float : usdcNow / 2n;
+  if (lpAmount < 20_000_000n) {
+    throw new Error(`Need >=20 USDC for LP depth, have ${formatUnits(usdcNow, 6)}`);
+  }
+
+  const mintHash = await walletClient.writeContract({
+    address: NPM,
+    abi: npmAbi,
+    functionName: "mint",
+    args: [
+      {
+        token0,
+        token1,
+        fee: FEE,
+        tickLower: TICK_LOWER,
+        tickUpper: TICK_UPPER,
+        amount0Desired: lpAmount,
+        amount1Desired: lpAmount,
+        amount0Min: 0n,
+        amount1Min: 0n,
+        recipient: me,
+        deadline,
+      },
+    ],
+    gas: 800_000n,
+  });
+  const mintRc = await publicClient.waitForTransactionReceipt({ hash: mintHash });
+  if (mintRc.status !== "success") throw new Error("mint failed");
+  const liq = await publicClient.readContract({
+    address: pool,
+    abi: poolAbi,
+    functionName: "liquidity",
+  });
+  console.log({
+    mintedLP: formatUnits(lpAmount, 6),
+    liquidity: liq.toString(),
+    tick: (
+      await publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "slot0",
+      })
+    )[1],
+  });
+
+  // --- Volume: exactly one swap each way, SAME amountIn, one pair per tx ---
+  function encodeSwap(tokenIn: `0x${string}`, tokenOut: `0x${string}`) {
+    return encodeFunctionData({
+      abi: routerAbi,
+      functionName: "exactInputSingle",
+      args: [
+        {
+          tokenIn,
+          tokenOut,
+          fee: FEE,
+          recipient: me,
+          amountIn: AMOUNT, // identical both directions
+          amountOutMinimum: 0n,
+          sqrtPriceLimitX96: 0n,
+        },
+      ],
+    });
+  }
+
+  let volume = 0;
+  let pairs = 0;
+  const txs: string[] = [];
+  const started = Date.now();
+
+  console.log({
+    step: "volume",
+    rule: "1 USDC→sUSD + 1 sUSD→USDC same amountIn per pair",
+    amount: formatUnits(AMOUNT, 6),
+    target: TARGET_VOLUME,
+  });
+
+  while (volume < TARGET_VOLUME) {
+    // Pair A: USDC → sUSD, then sUSD → USDC (same AMOUNT)
+    const callsA: Hex[] = [
+      encodeSwap(USDC, SUSD),
+      encodeSwap(SUSD, USDC),
+    ];
+    const hashA = await walletClient.writeContract({
+      address: ROUTER,
+      abi: routerAbi,
+      functionName: "multicall",
+      args: [callsA],
+      gas: GAS,
+    });
+    const rcA = await publicClient.waitForTransactionReceipt({ hash: hashA });
+    if (rcA.status !== "success") throw new Error(`pair A failed ${hashA}`);
+    volume += (Number(AMOUNT) * 2) / 1e6;
+    pairs += 1;
+    txs.push(hashA);
+
+    let tick = (
+      await publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "slot0",
+      })
+    )[1];
+    if (Math.abs(tick) > MAX_ABS_TICK) {
+      throw new Error(`Depeg after USDC-first pair (tick=${tick}). Stopped.`);
+    }
+
+    if (volume >= TARGET_VOLUME) break;
+
+    // Pair B: opposite starting side — sUSD → USDC, then USDC → sUSD (same AMOUNT)
+    // Keeps inventory balanced and cancels residual fee bias over time.
+    const callsB: Hex[] = [
+      encodeSwap(SUSD, USDC),
+      encodeSwap(USDC, SUSD),
+    ];
+    const hashB = await walletClient.writeContract({
+      address: ROUTER,
+      abi: routerAbi,
+      functionName: "multicall",
+      args: [callsB],
+      gas: GAS,
+    });
+    const rcB = await publicClient.waitForTransactionReceipt({ hash: hashB });
+    if (rcB.status !== "success") throw new Error(`pair B failed ${hashB}`);
+    volume += (Number(AMOUNT) * 2) / 1e6;
+    pairs += 1;
+    txs.push(hashB);
+
+    tick = (
+      await publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "slot0",
+      })
+    )[1];
+
+    const [u, s] = await Promise.all([
+      publicClient.readContract({
+        address: USDC,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [me],
+      }),
+      publicClient.readContract({
+        address: SUSD,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [me],
+      }),
+    ]);
+
+    console.log({
+      pairs,
+      volume: Math.min(volume, TARGET_VOLUME),
+      tick,
+      usdc: formatUnits(u, 6),
+      susd: formatUnits(s, 6),
+    });
+
+    if (Math.abs(tick) > MAX_ABS_TICK) {
+      throw new Error(`Depeg after sUSD-first pair (tick=${tick}). Stopped.`);
+    }
+
+    writeFileSync(
+      "data/sepolia-susd-usdc-pool-v3.json",
+      JSON.stringify(
+        {
+          pool,
+          fee: FEE,
+          targetVolume: TARGET_VOLUME,
+          achievedVolume: volume,
+          pairs,
+          txs,
+          finalTick: tick,
+          elapsedMs: Date.now() - started,
+          via: "equal-amount-opposite-swaps",
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  const finalTick = (
+    await publicClient.readContract({
+      address: pool,
+      abi: poolAbi,
+      functionName: "slot0",
+    })
+  )[1];
+
+  let envText = readFileSync(".env", "utf8");
+  if (/^SUSD_USDC_POOL=/m.test(envText)) {
+    envText = envText.replace(/^SUSD_USDC_POOL=.*$/m, `SUSD_USDC_POOL=${pool}`);
+  } else {
+    envText += `\nSUSD_USDC_POOL=${pool}\n`;
+  }
+  envText = envText.replace(/^WATCHED_POOLS=.*$/m, `WATCHED_POOLS=${pool}`);
+  writeFileSync(".env", envText);
+
+  writeFileSync(
+    "data/sepolia-susd-usdc-pool-v3.json",
+    JSON.stringify(
+      {
+        pool,
+        fee: FEE,
+        targetVolume: TARGET_VOLUME,
+        achievedVolume: volume,
+        pairs,
+        txs,
+        finalTick,
+        elapsedMs: Date.now() - started,
+        via: "equal-amount-opposite-swaps",
+      },
+      null,
+      2,
+    ),
+  );
+
+  console.log("done", { pool, volume, finalTick, pairs });
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

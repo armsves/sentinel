@@ -71,6 +71,7 @@ export async function getQuote(params: SwapParams): Promise<QuoteResponse> {
       swapper: params.swapper,
       slippageTolerance: params.slippageTolerance ?? cfg.SLIPPAGE_TOLERANCE,
       routingPreference: params.routingPreference ?? "BEST_PRICE",
+      protocols: ["V3"],
     },
     tradeHeaders(),
   );

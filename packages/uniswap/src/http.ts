@@ -101,7 +101,11 @@ export async function sendApiTx(opts: {
     to: opts.tx.to as `0x${string}`,
     data: opts.tx.data as Hex,
     value: opts.tx.value ? BigInt(opts.tx.value) : 0n,
-    ...(opts.tx.gasLimit ? { gas: BigInt(opts.tx.gasLimit) } : {}),
+    // Trading API sometimes returns ~97k gasLimit; UR swaps need more.
+    // Omit low caps so the wallet estimates gas instead.
+    ...(opts.tx.gasLimit && BigInt(opts.tx.gasLimit) >= 200_000n
+      ? { gas: BigInt(opts.tx.gasLimit) }
+      : {}),
   });
   logger.info(`sent ${opts.label}`, { hash });
   await opts.publicClient.waitForTransactionReceipt({ hash });
