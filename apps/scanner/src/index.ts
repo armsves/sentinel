@@ -12,7 +12,7 @@ import {
   fetchPortfolioTokens,
   poolHealthToSignals,
 } from "@sentinel/graph";
-import { pollXExploitSignals } from "@sentinel/monitors";
+import { pollFortaAlerts, pollXExploitSignals } from "@sentinel/monitors";
 import { scoreSignalsWith0G } from "@sentinel/zg";
 import { formatUnits } from "viem";
 
@@ -131,13 +131,15 @@ async function scanOnce(): Promise<NormalizedSignal[]> {
     return [] as NormalizedSignal[];
   });
 
+  const fortaSignals = await pollFortaAlerts();
+
   const boostedX = relevanceBoost(
     xSignals,
     graphPart.heldSymbols,
     cfg.watchedPools,
   );
 
-  return [...graphPart.signals, ...boostedX];
+  return [...graphPart.signals, ...boostedX, ...fortaSignals];
 }
 
 async function maybeEnqueuePanic(signals: NormalizedSignal[]) {
