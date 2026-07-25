@@ -1116,7 +1116,7 @@ function ConfigPage(props: {
       <section className="panel" style={{ marginTop: "1.5rem" }}>
         <h2>Chat with Sentinel (0G)</h2>
         <p className="empty" style={{ marginBottom: "0.75rem" }}>
-          Requires <code>ZG_ROUTER_API_KEY</code> on the local API.
+          Talk to the agent via 0G Compute router.
         </p>
         <div className="chat-log">
           {chatLog.length === 0 ? (

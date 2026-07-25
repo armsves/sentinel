@@ -13,6 +13,7 @@ import {
   useRedisStore,
   type PolicySettings,
 } from "@sentinel/core";
+import { chatWith0G } from "@sentinel/zg";
 
 if (process.env.VERCEL) {
   process.env.PUBLIC_DEMO ??= "true";
@@ -133,14 +134,31 @@ app.post("/demo/run", async (c) => {
   return c.json(result);
 });
 
-app.post("/chat", async (c) =>
-  c.json({
-    reply:
-      "Public demo mode: chat is available on the local API with a 0G key. Use Fire stop-loss to run the exit simulation.",
-    model: "public-demo",
-    provider: "public-demo",
-  }),
-);
+app.post("/chat", async (c) => {
+  const body = await c.req
+    .json<{
+      message?: string;
+      history?: Array<{ role: "user" | "assistant"; content: string }>;
+    }>()
+    .catch(() => ({} as { message?: string }));
+  const message = body.message?.trim();
+  if (!message) return c.json({ error: "message is required" }, 400);
+  try {
+    const result = await chatWith0G({
+      message,
+      history: body.history?.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
 
 /** Vercel Web Handler (Fluid): must export fetch, not Node (req,res). */
 export default {
