@@ -11,6 +11,26 @@ type Health = {
   watchedPositions: number;
 };
 
+type PolicySettings = {
+  safeAssets: Array<"USDC" | "USDT" | "DAI">;
+  priceDropThresholdPct: number;
+  depegThresholdBps: number;
+  poolTvlDropThresholdPct: number;
+  poolMinTvlUsd: number;
+  panicConfirmations: number;
+  minPanicSeverity: "low" | "medium" | "high" | "critical";
+  slippageTolerance: number;
+  executionMode: "dry_run" | "live";
+  actions: { withdrawLp: boolean; swapToStables: boolean };
+  sources: {
+    graph: boolean;
+    x: boolean;
+    glider: boolean;
+    forta: boolean;
+    zg: boolean;
+  };
+};
+
 type QueueItem = {
   event: {
     id: string;
@@ -41,11 +61,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+const STABLES: Array<"USDC" | "USDT" | "DAI"> = ["USDC", "USDT", "DAI"];
+
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [wallet, setWallet] = useState<string>("");
+  const [policy, setPolicy] = useState<PolicySettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [swap, setSwap] = useState({
@@ -59,17 +82,19 @@ export function App() {
     setBusy(true);
     setMessage("");
     try {
-      const [h, q, p] = await Promise.all([
+      const [h, q, p, s] = await Promise.all([
         api<Health>("/api/health"),
         api<{ items: QueueItem[] }>("/api/queue"),
         api<{ address: string; positions: Position[] }>("/api/positions").catch(
           () => ({ address: "", positions: [] as Position[] }),
         ),
+        api<{ policy: PolicySettings }>("/api/settings"),
       ]);
       setHealth(h);
       setQueue(q.items);
       setPositions(p.positions);
       setWallet(p.address);
+      setPolicy(s.policy);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -82,6 +107,36 @@ export function App() {
     const id = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  async function saveSettings(e: FormEvent) {
+    e.preventDefault();
+    if (!policy) return;
+    setBusy(true);
+    try {
+      const res = await api<{ policy: PolicySettings }>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify(policy),
+      });
+      setPolicy(res.policy);
+      setMessage("Settings saved. Scanner/executor will use them on next tick.");
+      await refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleStable(sym: "USDC" | "USDT" | "DAI") {
+    if (!policy) return;
+    const has = policy.safeAssets.includes(sym);
+    const next = has
+      ? policy.safeAssets.filter((s) => s !== sym)
+      : [...policy.safeAssets, sym];
+    // preserve priority order USDC, USDT, DAI
+    const ordered = STABLES.filter((s) => next.includes(s));
+    setPolicy({ ...policy, safeAssets: ordered.length ? ordered : ["USDC"] });
+  }
 
   async function simulatePanic() {
     setBusy(true);
@@ -121,18 +176,7 @@ export function App() {
           decimals: Number(swap.decimals),
         }),
       });
-      setMessage(
-        JSON.stringify(
-          {
-            mode: res.mode,
-            routing: res.routing,
-            simulated: res.simulated,
-            hash: res.hash,
-          },
-          null,
-          2,
-        ),
-      );
+      setMessage(JSON.stringify(res, null, 2));
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     } finally {
@@ -144,29 +188,29 @@ export function App() {
     <div className="shell">
       <h1 className="brand">SENTINEL</h1>
       <p className="tagline">
-        Panic-button control surface. Watch Graph pool health and Blockaid/X
-        exploits, then exit Uniswap liquidity toward stables.
+        Panic-button control surface. Tune threat thresholds and exit actions,
+        then let the agent withdraw Uniswap liquidity toward stables.
       </p>
 
       <div className="status-row">
         <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
-          mode <strong>{health?.executionMode ?? "…"}</strong>
+          mode <strong>{policy?.executionMode ?? health?.executionMode ?? "…"}</strong>
         </div>
         <div className="pill">
-          chain <strong>{health?.chainId ?? "…"}</strong>
+          min threat <strong>{policy?.minPanicSeverity ?? "…"}</strong>
         </div>
         <div className="pill">
-          x feed{" "}
+          stop-loss <strong>{policy ? `${policy.priceDropThresholdPct}%` : "…"}</strong>
+        </div>
+        <div className="pill">
+          exit{" "}
+          <strong>{policy?.safeAssets.join(" → ") ?? "…"}</strong>
+        </div>
+        <div className="pill">
+          wallet{" "}
           <strong>
-            {health
-              ? health.xLive
-                ? `@${health.xAccounts.join(", @")}`
-                : "fixture"
-              : "…"}
+            {wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "unset"}
           </strong>
-        </div>
-        <div className="pill">
-          wallet <strong>{wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "unset"}</strong>
         </div>
       </div>
 
@@ -179,7 +223,209 @@ export function App() {
         </button>
       </div>
 
-      <div className="grid">
+      {policy ? (
+        <section className="panel">
+          <h2>Policy settings</h2>
+          <form className="form settings" onSubmit={(e) => void saveSettings(e)}>
+            <div className="settings-grid">
+              <label>
+                Min panic severity
+                <select
+                  value={policy.minPanicSeverity}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      minPanicSeverity: e.target.value as PolicySettings["minPanicSeverity"],
+                    })
+                  }
+                >
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="critical">critical</option>
+                </select>
+              </label>
+
+              <label>
+                Execution mode
+                <select
+                  value={policy.executionMode}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      executionMode: e.target.value as "dry_run" | "live",
+                    })
+                  }
+                >
+                  <option value="dry_run">dry_run</option>
+                  <option value="live">live</option>
+                </select>
+              </label>
+
+              <label>
+                Stop-loss / price drop %
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={policy.priceDropThresholdPct}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      priceDropThresholdPct: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Depeg threshold (bps)
+                <input
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={policy.depegThresholdBps}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      depegThresholdBps: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Pool TVL drop %
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={policy.poolTvlDropThresholdPct}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      poolTvlDropThresholdPct: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Panic confirmations (# sources)
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={policy.panicConfirmations}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      panicConfirmations: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Slippage tolerance %
+                <input
+                  type="number"
+                  min={0.1}
+                  max={20}
+                  step={0.1}
+                  value={policy.slippageTolerance}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      slippageTolerance: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <fieldset className="checks">
+              <legend>Exit stables (priority order)</legend>
+              {STABLES.map((sym) => (
+                <label key={sym} className="check">
+                  <input
+                    type="checkbox"
+                    checked={policy.safeAssets.includes(sym)}
+                    onChange={() => toggleStable(sym)}
+                  />
+                  {sym}
+                </label>
+              ))}
+            </fieldset>
+
+            <fieldset className="checks">
+              <legend>Exit actions</legend>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={policy.actions.withdrawLp}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      actions: { ...policy.actions, withdrawLp: e.target.checked },
+                    })
+                  }
+                />
+                Withdraw Uniswap LP
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={policy.actions.swapToStables}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      actions: {
+                        ...policy.actions,
+                        swapToStables: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Swap residuals to stables
+              </label>
+            </fieldset>
+
+            <fieldset className="checks">
+              <legend>Signal sources</legend>
+              {(
+                [
+                  ["graph", "The Graph pools"],
+                  ["x", "Blockaid / X"],
+                  ["glider", "Glider webhooks"],
+                  ["forta", "Forta poll"],
+                  ["zg", "0G scoring"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="check">
+                  <input
+                    type="checkbox"
+                    checked={policy.sources[key]}
+                    onChange={(e) =>
+                      setPolicy({
+                        ...policy,
+                        sources: { ...policy.sources, [key]: e.target.checked },
+                      })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+
+            <button className="primary" disabled={busy} type="submit">
+              Save policy
+            </button>
+          </form>
+        </section>
+      ) : null}
+
+      <div className="grid" style={{ marginTop: "1.25rem" }}>
         <section className="panel">
           <h2>Panic queue</h2>
           {queue.length === 0 ? (
@@ -217,7 +463,10 @@ export function App() {
           ) : (
             <ul className="list">
               {positions.map((p) => (
-                <li key={p.nftTokenId ?? `${p.token0Address}-${p.liquidity}`} className="item">
+                <li
+                  key={p.nftTokenId ?? `${p.token0Address}-${p.liquidity}`}
+                  className="item"
+                >
                   <div>
                     {p.protocol} NFT #{p.nftTokenId} · fee {p.feeTier}
                   </div>
