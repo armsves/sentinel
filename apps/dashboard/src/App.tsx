@@ -427,30 +427,6 @@ export function App() {
         </div>
       </header>
 
-      {page !== "home" ? (
-        <div className="status-row compact">
-          <div className={`pill ${health?.dryRun ? "dry" : "live"}`}>
-            mode{" "}
-            <strong>{policy?.executionMode ?? health?.executionMode ?? "…"}</strong>
-          </div>
-          {health?.publicDemo ? (
-            <div className="pill dry">
-              demo <strong>public dry-run</strong>
-            </div>
-          ) : null}
-          <div className="pill">
-            store <strong>{health?.store ?? "…"}</strong>
-          </div>
-          <div className="pill">
-            stop-loss{" "}
-            <strong>{policy ? `${policy.priceDropThresholdPct}%` : "…"}</strong>
-          </div>
-          <div className="pill">
-            exit <strong>{policy?.safeAssets.join(" → ") ?? "…"}</strong>
-          </div>
-        </div>
-      ) : null}
-
       {message && page !== "home" ? <pre className="msg">{message}</pre> : null}
 
       {page === "home" ? (
