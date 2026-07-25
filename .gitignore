@@ -35,3 +35,7 @@ data/
 *.sqlite
 *.db
 *.tsbuildinfo
+
+# foundry
+contracts/cache/
+contracts/out/
