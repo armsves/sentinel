@@ -100,7 +100,7 @@ input {
   right: 0;
   bottom: -1px;
   height: 3px;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
@@ -109,39 +109,42 @@ input {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 28%;
-  max-width: 140px;
-  height: 3px;
-  translate: 0 -50%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--danger) 35%, transparent) 18%,
-    #ff2a1f 50%,
-    color-mix(in srgb, var(--danger) 35%, transparent) 82%,
-    transparent 100%
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    #fff 0%,
+    #ff5a4a 35%,
+    #ff2a1f 70%,
+    #c41008 100%
   );
   box-shadow:
-    0 0 10px 2px color-mix(in srgb, var(--danger) 70%, transparent),
-    0 0 22px 4px color-mix(in srgb, var(--danger) 35%, transparent);
-  animation: cylon-scan 2.4s ease-in-out infinite alternate;
+    0 0 8px 2px color-mix(in srgb, var(--danger) 95%, white),
+    0 0 18px 6px color-mix(in srgb, var(--danger) 65%, transparent),
+    -22px 0 16px -1px color-mix(in srgb, var(--danger) 45%, transparent),
+    22px 0 16px -1px color-mix(in srgb, var(--danger) 45%, transparent);
+  animation: cylon-scan 2.2s ease-in-out infinite alternate;
+  will-change: left, transform;
 }
 
 @keyframes cylon-scan {
   from {
-    left: -8%;
+    left: 0;
+    transform: translate(0, -50%);
   }
   to {
-    left: 80%;
+    left: 100%;
+    transform: translate(-100%, -50%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .cylon-eye {
     animation: none;
-    left: 36%;
-    opacity: 0.7;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.85;
   }
 }
 
