@@ -12,6 +12,7 @@
     "executor": "pnpm --filter @sentinel/executor start",
     "cli": "pnpm --filter @sentinel/executor start",
     "panic-worker": "pnpm --filter @sentinel/executor start panic-worker",
+    "api": "pnpm --filter @sentinel/api start",
     "typecheck": "pnpm -r run typecheck"
   },
   "engines": {

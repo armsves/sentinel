@@ -1,0 +1,24 @@
+{
+  "name": "@sentinel/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@sentinel/core": "workspace:*",
+    "@sentinel/monitors": "workspace:*",
+    "@sentinel/uniswap": "workspace:*",
+    "@hono/node-server": "^1.14.1",
+    "hono": "^4.7.5",
+    "viem": "^2.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
