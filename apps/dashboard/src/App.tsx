@@ -422,6 +422,9 @@ export function App() {
             </button>
           ))}
         </nav>
+        <div className="cylon" aria-hidden="true">
+          <span className="cylon-eye" />
+        </div>
       </header>
 
       {page !== "home" ? (

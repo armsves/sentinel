@@ -83,14 +83,66 @@ input {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.25rem;
-  padding-bottom: 1rem;
+  padding-bottom: 1.15rem;
   border-bottom: 1px solid var(--line);
+}
+
+.cylon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.cylon-eye {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 28%;
+  max-width: 140px;
+  height: 3px;
+  translate: 0 -50%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--danger) 35%, transparent) 18%,
+    #ff2a1f 50%,
+    color-mix(in srgb, var(--danger) 35%, transparent) 82%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 10px 2px color-mix(in srgb, var(--danger) 70%, transparent),
+    0 0 22px 4px color-mix(in srgb, var(--danger) 35%, transparent);
+  animation: cylon-scan 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes cylon-scan {
+  from {
+    left: -8%;
+  }
+  to {
+    left: 80%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cylon-eye {
+    animation: none;
+    left: 36%;
+    opacity: 0.7;
+  }
 }
 
 .brand-mark {
