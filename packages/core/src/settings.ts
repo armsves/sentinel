@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { Severity } from "./types.js";
+import { REDIS_KEYS, redisGet, redisSet, useRedisStore } from "./redis.js";
 
 export type PolicySettings = {
   /** Ordered flight-to-safety assets */
@@ -21,6 +23,8 @@ export type PolicySettings = {
   actions: {
     withdrawLp: boolean;
     swapToStables: boolean;
+    /** After flight-to-stables, ERC-20 transfer to SAFE_WALLET_ADDRESS */
+    transferToSafe: boolean;
   };
   sources: {
     graph: boolean;
@@ -44,6 +48,7 @@ export const DEFAULT_POLICY: PolicySettings = {
   actions: {
     withdrawLp: true,
     swapToStables: true,
+    transferToSafe: true,
   },
   sources: {
     graph: true,
@@ -55,19 +60,48 @@ export const DEFAULT_POLICY: PolicySettings = {
 };
 
 function settingsPath(): string {
-  return resolve(
+  if (process.env.RUNTIME_SETTINGS_PATH) {
+    return resolve(process.cwd(), process.env.RUNTIME_SETTINGS_PATH);
+  }
+  const monorepoRoot = [
     process.cwd(),
-    process.env.RUNTIME_SETTINGS_PATH ?? "data/runtime-settings.json",
+    resolve(process.cwd(), "../.."),
+    resolve(process.cwd(), "../../.."),
+  ].find(
+    (dir) =>
+      existsSync(resolve(dir, "pnpm-workspace.yaml")) ||
+      existsSync(resolve(dir, "pnpm-workspace.yml")),
   );
+  if (monorepoRoot) {
+    return resolve(monorepoRoot, "data/runtime-settings.json");
+  }
+  return resolve(process.cwd(), "data/runtime-settings.json");
 }
 
 export async function loadPolicySettings(): Promise<PolicySettings> {
   try {
+    if (useRedisStore()) {
+      const raw = await redisGet(REDIS_KEYS.settings);
+      if (!raw) {
+        return {
+          ...DEFAULT_POLICY,
+          actions: { ...DEFAULT_POLICY.actions },
+          sources: { ...DEFAULT_POLICY.sources },
+          safeAssets: [...DEFAULT_POLICY.safeAssets],
+        };
+      }
+      return mergePolicy(DEFAULT_POLICY, JSON.parse(raw) as Partial<PolicySettings>);
+    }
     const raw = await readFile(settingsPath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<PolicySettings>;
     return mergePolicy(DEFAULT_POLICY, parsed);
   } catch {
-    return { ...DEFAULT_POLICY, actions: { ...DEFAULT_POLICY.actions }, sources: { ...DEFAULT_POLICY.sources }, safeAssets: [...DEFAULT_POLICY.safeAssets] };
+    return {
+      ...DEFAULT_POLICY,
+      actions: { ...DEFAULT_POLICY.actions },
+      sources: { ...DEFAULT_POLICY.sources },
+      safeAssets: [...DEFAULT_POLICY.safeAssets],
+    };
   }
 }
 
@@ -85,7 +119,10 @@ export function mergePolicy(
     ...base,
     ...patch,
     safeAssets: safeAssets.length ? safeAssets : [...base.safeAssets],
-    actions: { ...base.actions, ...(patch.actions ?? {}) },
+    actions: {
+      ...base.actions,
+      ...(patch.actions ?? {}),
+    },
     sources: { ...base.sources, ...(patch.sources ?? {}) },
   };
 }
@@ -95,8 +132,21 @@ export async function savePolicySettings(
 ): Promise<PolicySettings> {
   const current = await loadPolicySettings();
   const next = mergePolicy(current, patch);
-  // always keep at least one stable selected
   if (!next.safeAssets.length) next.safeAssets = ["USDC"];
+
+  // Public Vercel demos stay dry_run unless explicitly unlocked
+  if (
+    (process.env.VERCEL || process.env.PUBLIC_DEMO === "true") &&
+    process.env.ALLOW_PUBLIC_LIVE !== "true"
+  ) {
+    next.executionMode = "dry_run";
+  }
+
+  if (useRedisStore()) {
+    await redisSet(REDIS_KEYS.settings, JSON.stringify(next));
+    return next;
+  }
+
   const path = settingsPath();
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;

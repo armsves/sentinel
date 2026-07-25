@@ -4,3 +4,6 @@ export * from "./wallet.js";
 export * from "./logger.js";
 export * from "./queue.js";
 export * from "./settings.js";
+export * from "./activity.js";
+export * from "./redis.js";
+export * from "./publicDemo.js";

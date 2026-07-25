@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, appendFile, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getConfig } from "./config.js";
 import { loadPolicySettings, severityRank } from "./settings.js";
 import type { NormalizedSignal, PanicEvent, Severity } from "./types.js";
+import { REDIS_KEYS, redisGet, redisSet, useRedisStore } from "./redis.js";
 
 export type QueueItem = {
   event: PanicEvent;
@@ -14,10 +16,36 @@ export type QueueItem = {
 };
 
 function queuePath(): string {
-  return resolve(process.cwd(), process.env.PANIC_QUEUE_PATH ?? "data/panic-queue.json");
+  if (process.env.PANIC_QUEUE_PATH) {
+    return resolve(process.cwd(), process.env.PANIC_QUEUE_PATH);
+  }
+  const rootData = [
+    resolve(process.cwd(), "data/panic-queue.json"),
+    resolve(process.cwd(), "../../data/panic-queue.json"),
+    resolve(process.cwd(), "../../../data/panic-queue.json"),
+  ].find((p) => existsSync(resolve(dirname(p), "../package.json")) || existsSync(dirname(p)));
+
+  const monorepoRoot = [process.cwd(), resolve(process.cwd(), "../.."), resolve(process.cwd(), "../../..")].find(
+    (dir) =>
+      existsSync(resolve(dir, "pnpm-workspace.yaml")) ||
+      existsSync(resolve(dir, "pnpm-workspace.yml")),
+  );
+  if (monorepoRoot) {
+    return resolve(monorepoRoot, "data/panic-queue.json");
+  }
+  return rootData ?? resolve(process.cwd(), "data/panic-queue.json");
 }
 
 async function loadQueue(): Promise<QueueItem[]> {
+  if (useRedisStore()) {
+    try {
+      const raw = await redisGet(REDIS_KEYS.queue);
+      if (!raw) return [];
+      return JSON.parse(raw) as QueueItem[];
+    } catch {
+      return [];
+    }
+  }
   const path = queuePath();
   try {
     const raw = await readFile(path, "utf8");
@@ -28,6 +56,10 @@ async function loadQueue(): Promise<QueueItem[]> {
 }
 
 async function saveQueue(items: QueueItem[]): Promise<void> {
+  if (useRedisStore()) {
+    await redisSet(REDIS_KEYS.queue, JSON.stringify(items));
+    return;
+  }
   const path = queuePath();
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
@@ -108,15 +140,20 @@ export async function buildPanicEvent(
   };
 }
 
-export async function enqueuePanic(event: PanicEvent): Promise<boolean> {
+export async function enqueuePanic(
+  event: PanicEvent,
+  opts?: { force?: boolean },
+): Promise<boolean> {
   const items = await loadQueue();
-  const fingerprint = event.id.split("-")[0];
-  const recent = items.find(
-    (i) =>
-      i.event.id.startsWith(fingerprint ?? "") &&
-      Date.now() - i.enqueuedAt < 15 * 60_000,
-  );
-  if (recent) return false;
+  if (!opts?.force) {
+    const fingerprint = event.id.split("-")[0];
+    const recent = items.find(
+      (i) =>
+        i.event.id.startsWith(fingerprint ?? "") &&
+        Date.now() - i.enqueuedAt < 15 * 60_000,
+    );
+    if (recent) return false;
+  }
   items.push({
     event,
     status: "pending",
@@ -124,10 +161,12 @@ export async function enqueuePanic(event: PanicEvent): Promise<boolean> {
     updatedAt: Date.now(),
   });
   await saveQueue(items);
-  await appendFile(
-    resolve(dirname(queuePath()), "panic-events.jsonl"),
-    `${JSON.stringify(event)}\n`,
-  ).catch(() => undefined);
+  if (!useRedisStore()) {
+    await appendFile(
+      resolve(dirname(queuePath()), "panic-events.jsonl"),
+      `${JSON.stringify(event)}\n`,
+    ).catch(() => undefined);
+  }
   return true;
 }
 

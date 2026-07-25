@@ -11,11 +11,12 @@ function loadEnvFiles() {
   ];
   for (const p of candidates) {
     if (existsSync(p)) {
-      loadDotenv({ path: p });
+      // Prefer repo .env over inherited shell vars (common in IDE terminals).
+      loadDotenv({ path: p, override: true });
       return;
     }
   }
-  loadDotenv();
+  loadDotenv({ override: true });
 }
 
 loadEnvFiles();
@@ -30,8 +31,10 @@ function normalizeOptionalAddress(value: string): string {
 }
 
 const envSchema = z.object({
-  CHAIN_ID: z.coerce.number().default(1),
-  RPC_URL: z.string().min(1),
+  CHAIN_ID: z.coerce.number().default(11155111),
+  RPC_URL: z
+    .string()
+    .default("https://ethereum-sepolia-rpc.publicnode.com"),
   PRIVATE_KEY: z.string().optional().default(""),
   WALLET_ADDRESS: address.optional().default(""),
 
@@ -39,6 +42,12 @@ const envSchema = z.object({
   USDC_ADDRESS: address.default("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
   USDT_ADDRESS: address.default("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
   DAI_ADDRESS: address.default("0x6B175474E89094C44Da98b954EedeAC495271d0F"),
+  /** Destination wallet after exit + swap (flight capital) */
+  SAFE_WALLET_ADDRESS: address.default(""),
+  /** Demo / synthetic USD that should peg 1:1 to stables */
+  SUSD_ADDRESS: address.default(""),
+  /** Extra token addresses treated as USD-pegged for depeg checks */
+  PEGGED_TOKENS: z.string().default(""),
 
   UNISWAP_API_KEY: z.string().optional().default(""),
   UNISWAP_TRADE_API_BASE_URL: z
@@ -110,6 +119,7 @@ export type SentinelConfig = z.infer<typeof envSchema> & {
   watchedPools: string[];
   watchedPositionIds: string[];
   portfolioTokens: string[];
+  peggedTokens: string[];
   xWatchAccounts: string[];
 };
 
@@ -127,15 +137,30 @@ function buildFromEnv(): SentinelConfig {
   }
   const e = parsed.data;
   const wallet = normalizeOptionalAddress(e.WALLET_ADDRESS);
-  const usdc = normalizeOptionalAddress(e.USDC_ADDRESS) || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-  const usdt = normalizeOptionalAddress(e.USDT_ADDRESS) || "0xdAC17F958D2ee523a2206206994597C13D831ec7";
-  const dai = normalizeOptionalAddress(e.DAI_ADDRESS) || "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+  const mainnetDefaults = e.CHAIN_ID === 1;
+  const usdc =
+    normalizeOptionalAddress(e.USDC_ADDRESS) ||
+    (mainnetDefaults
+      ? "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+      : e.CHAIN_ID === 11155111
+        ? "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+        : "");
+  const usdt =
+    normalizeOptionalAddress(e.USDT_ADDRESS) ||
+    (mainnetDefaults ? "0xdAC17F958D2ee523a2206206994597C13D831ec7" : "");
+  const dai =
+    normalizeOptionalAddress(e.DAI_ADDRESS) ||
+    (mainnetDefaults ? "0x6B175474E89094C44Da98b954EedeAC495271d0F" : "");
+  const safeWallet = normalizeOptionalAddress(e.SAFE_WALLET_ADDRESS);
+  const susd = normalizeOptionalAddress(e.SUSD_ADDRESS);
   return {
     ...e,
     WALLET_ADDRESS: wallet,
     USDC_ADDRESS: usdc,
     USDT_ADDRESS: usdt,
     DAI_ADDRESS: dai,
+    SAFE_WALLET_ADDRESS: safeWallet,
+    SUSD_ADDRESS: susd,
     PRIVATE_KEY:
       !e.PRIVATE_KEY || e.PRIVATE_KEY.includes("YOUR") ? "" : e.PRIVATE_KEY,
     safeAssets: e.SAFE_ASSETS.split(",")
@@ -148,6 +173,9 @@ function buildFromEnv(): SentinelConfig {
       .map((s) => s.trim())
       .filter(Boolean),
     portfolioTokens: e.PORTFOLIO_TOKENS.split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^0x[a-fA-F0-9]{40}$/.test(s)),
+    peggedTokens: e.PEGGED_TOKENS.split(",")
       .map((s) => s.trim().toLowerCase())
       .filter((s) => /^0x[a-fA-F0-9]{40}$/.test(s)),
     xWatchAccounts: e.X_WATCH_ACCOUNTS.split(",")
