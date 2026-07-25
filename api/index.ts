@@ -2,7 +2,6 @@
  * Lightweight public demo API for Vercel.
  * Avoids pulling Uniswap/0G/executor into the serverless bundle.
  */
-import { handle } from "@hono/node-server/vercel";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -118,4 +117,11 @@ app.post("/chat", async (c) =>
   }),
 );
 
-export default handle(app);
+/** Vercel Web Handler (Fluid): must export fetch, not Node (req,res). */
+export default {
+  async fetch(request: Request): Promise<Response> {
+    return app.fetch(request);
+  },
+};
+
+export { app };

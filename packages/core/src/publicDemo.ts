@@ -96,7 +96,7 @@ export async function runPublicDryRunDemo(opts: {
     message: `Public demo: ${label}`,
     data: { id, kind: opts.kind, value, threshold },
   });
-  await sleep(200);
+  await sleep(50);
 
   await emitActivity({
     agent: "demo",
@@ -104,7 +104,7 @@ export async function runPublicDryRunDemo(opts: {
     level: "warn",
     message: `Signal on pool ${pool}: ${label}`,
   });
-  await sleep(250);
+  await sleep(50);
 
   const zgScore = 0.91;
   const zgRationale = `Public dry-run: ${label} exceeds policy thresholds.`;
@@ -115,7 +115,7 @@ export async function runPublicDryRunDemo(opts: {
     message: `0G score ${zgScore} — ${zgRationale}`,
     data: { provider: "public-demo" },
   });
-  await sleep(200);
+  await sleep(50);
 
   await emitActivity({
     agent: "demo",
@@ -123,7 +123,7 @@ export async function runPublicDryRunDemo(opts: {
     level: "warn",
     message: `Panic enqueued ${id} (dry_run)`,
   });
-  await sleep(200);
+  await sleep(50);
 
   if (policy.actions.withdrawLp) {
     await emitActivity({
@@ -133,7 +133,7 @@ export async function runPublicDryRunDemo(opts: {
       message: "[dry_run] would withdraw Uniswap LP 100%",
       data: { pool },
     });
-    await sleep(300);
+    await sleep(50);
   }
 
   if (policy.actions.swapToStables) {
@@ -143,7 +143,7 @@ export async function runPublicDryRunDemo(opts: {
       level: "warn",
       message: `[dry_run] would swap residuals → ${policy.safeAssets.join(",")}`,
     });
-    await sleep(300);
+    await sleep(50);
   }
 
   if (policy.actions.transferToSafe) {
@@ -155,7 +155,7 @@ export async function runPublicDryRunDemo(opts: {
         ? `[dry_run] would transfer stables → ${safe}`
         : "[dry_run] SAFE_WALLET unset — would keep stables on hot wallet",
     });
-    await sleep(200);
+    await sleep(50);
   }
 
   await emitActivity({
