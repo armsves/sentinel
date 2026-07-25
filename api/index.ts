@@ -2,9 +2,9 @@
  * Lightweight public demo API for Vercel.
  * Avoids pulling Uniswap/0G/executor into the serverless bundle.
  */
+import { handle } from "@hono/node-server/vercel";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { handle } from "hono/vercel";
 import {
   isPublicDemoRuntime,
   listActivity,
