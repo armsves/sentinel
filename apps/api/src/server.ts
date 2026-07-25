@@ -226,19 +226,33 @@ app.post("/api/trigger", async (c) => {
 app.get("/api/positions", async (c) => {
   try {
     const cfg = getConfig();
+    const watchedPools = cfg.watchedPools;
+    const safeWallet = cfg.SAFE_WALLET_ADDRESS || null;
     if (
       isPublicDemoRuntime() &&
       !cfg.PRIVATE_KEY &&
       !cfg.WALLET_ADDRESS
     ) {
-      return c.json({ address: "", positions: [], publicDemo: true });
+      return c.json({
+        address: "",
+        safeWallet,
+        watchedPools,
+        publicDemo: true,
+        positions: watchedPools.map((pool) => ({
+          protocol: "uniswap-v3",
+          pool,
+          token0Address: cfg.SUSD_ADDRESS,
+          token1Address: cfg.USDC_ADDRESS,
+          note: "Watched pool (NFT positions require wallet + RPC)",
+        })),
+      });
     }
     const { publicClient, address } = createClients();
     if (!address) {
       return c.json({ error: "WALLET_ADDRESS or PRIVATE_KEY required" }, 400);
     }
     const positions = await listOwnerPositions(publicClient, address);
-    return c.json({ address, positions });
+    return c.json({ address, safeWallet, watchedPools, positions });
   } catch (err) {
     return c.json(
       { error: err instanceof Error ? err.message : String(err) },

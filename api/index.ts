@@ -21,8 +21,16 @@ if (process.env.VERCEL) {
 const app = new Hono().basePath("/api");
 app.use("*", cors());
 
+function envList(key: string): string[] {
+  return (process.env[key] ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 app.get("/health", async (c) => {
   const policy = await loadPolicySettings();
+  const watchedPools = envList("WATCHED_POOLS");
   return c.json({
     ok: true,
     chainId: Number(process.env.CHAIN_ID ?? 11155111),
@@ -30,9 +38,9 @@ app.get("/health", async (c) => {
     dryRun: true,
     store: useRedisStore() ? "redis" : "file",
     publicDemo: isPublicDemoRuntime() || true,
-    watchedPools: (process.env.WATCHED_POOLS ?? "")
-      .split(",")
-      .filter(Boolean).length,
+    watchedPools: watchedPools.length,
+    watchedPositions: envList("WATCHED_POSITION_IDS").length,
+    safeWallet: process.env.SAFE_WALLET_ADDRESS?.trim() || null,
     policy,
   });
 });
@@ -60,9 +68,26 @@ app.get("/activity", async (c) => {
 
 app.get("/queue", async (c) => c.json({ items: [] }));
 
-app.get("/positions", async (c) =>
-  c.json({ address: "", positions: [], publicDemo: true }),
-);
+app.get("/positions", async (c) => {
+  const watchedPools = envList("WATCHED_POOLS").map((p) => p.toLowerCase());
+  const wallet = process.env.WALLET_ADDRESS?.trim() || "";
+  const safeWallet = process.env.SAFE_WALLET_ADDRESS?.trim() || null;
+  const susd = process.env.SUSD_ADDRESS?.trim() || "";
+  const usdc = process.env.USDC_ADDRESS?.trim() || "";
+  return c.json({
+    address: wallet,
+    safeWallet,
+    watchedPools,
+    publicDemo: true,
+    positions: watchedPools.map((pool) => ({
+      protocol: "uniswap-v3",
+      pool,
+      token0Address: susd,
+      token1Address: usdc,
+      note: "Watched pool (NFT positions require local API + RPC)",
+    })),
+  });
+});
 
 app.post("/trigger", async (c) => {
   type TriggerBody = {
