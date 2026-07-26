@@ -1120,7 +1120,7 @@ function PortfolioPage(props: {
         </section>
       </div>
 
-      <div className="grid" style={{ marginTop: "1.25rem" }}>
+      <div className="grid portfolio-stack">
         <section className="panel">
           <h2>Watched pool positions</h2>
           {watchedPools.length > 0 ? (
@@ -1176,7 +1176,7 @@ function PortfolioPage(props: {
         </section>
       </div>
 
-      <section className="panel" style={{ marginTop: "1.25rem" }}>
+      <section className="panel portfolio-stack">
         <h2>Panic queue</h2>
         {queue.length === 0 ? (
           <p className="empty">No panic events queued.</p>
