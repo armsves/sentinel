@@ -71,4 +71,5 @@ export const REDIS_KEYS = {
   settings: "sentinel:settings",
   queue: "sentinel:panic-queue",
   activity: "sentinel:activity",
+  botHeartbeat: "sentinel:bot-heartbeat",
 } as const;

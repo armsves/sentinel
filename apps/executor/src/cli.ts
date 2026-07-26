@@ -242,7 +242,7 @@ async function cmdPanicSimulate(argv: string[]) {
   if (source === "glider" || source === "both") {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
-  const zg = await scoreSignalsWith0G(signals);
+  const zg = await scoreSignalsWith0G(signals, { force: true });
   const positions = cfg.watchedPools.map((pool) => ({
     chainId: cfg.CHAIN_ID,
     pool,

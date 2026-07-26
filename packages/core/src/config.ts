@@ -77,7 +77,7 @@ const envSchema = z.object({
   PRICE_DROP_THRESHOLD_PCT: z.coerce.number().default(15),
   DEPEG_THRESHOLD_BPS: z.coerce.number().default(100),
   POOL_TVL_DROP_THRESHOLD_PCT: z.coerce.number().default(25),
-  POOL_MIN_TVL_USD: z.coerce.number().default(50_000),
+  POOL_MIN_TVL_USD: z.coerce.number().default(10),
   PANIC_CONFIRMATIONS: z.coerce.number().default(2),
   EXECUTION_MODE: z.enum(["dry_run", "live"]).default("dry_run"),
   AGENT_ROLE: z.enum(["scanner", "executor"]).default("scanner"),
@@ -112,6 +112,8 @@ const envSchema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false"),
+  /** Minimum ms between 0G scoring calls (skips call when sooner). */
+  ZG_MIN_INTERVAL_MS: z.coerce.number().default(60_000),
 });
 
 export type SentinelConfig = z.infer<typeof envSchema> & {

@@ -15,6 +15,13 @@ type Health = {
   store?: string;
   publicDemo?: boolean;
   safeWallet?: string | null;
+  bot?: {
+    online: boolean;
+    lastSeen: number | null;
+    startedAt: number | null;
+    role: string | null;
+    staleAfterMs: number;
+  };
 };
 
 type PolicySettings = {
@@ -231,9 +238,15 @@ export function App() {
     void refreshActivity();
     const slow = setInterval(() => void refresh(), 10_000);
     const fast = setInterval(() => void refreshActivity(), 2_000);
+    const botPoll = setInterval(() => {
+      void api<Health>("/api/health")
+        .then((h) => setHealth(h))
+        .catch(() => undefined);
+    }, 5_000);
     return () => {
       clearInterval(slow);
       clearInterval(fast);
+      clearInterval(botPoll);
     };
   }, [refresh, refreshActivity]);
 
@@ -392,6 +405,21 @@ export function App() {
             </button>
           ))}
         </nav>
+        <div
+          className={`bot-status ${health?.bot?.online ? "on" : "off"}`}
+          title={
+            health?.bot?.online
+              ? `Agent online${health.bot.lastSeen ? ` · last pulse ${new Date(health.bot.lastSeen).toLocaleTimeString()}` : ""}`
+              : "Agent offline — run pnpm bot locally"
+          }
+          role="status"
+          aria-live="polite"
+        >
+          <span className="bot-status-light" aria-hidden="true" />
+          <span className="bot-status-label">
+            {health?.bot?.online ? "Bot on" : "Bot off"}
+          </span>
+        </div>
         <div className="cylon" aria-hidden="true">
           <span className="cylon-eye" />
         </div>

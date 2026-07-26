@@ -291,7 +291,7 @@ export async function fetchPoolsForPortfolioTokens(
   if (!tokenAddresses.length) return [];
   const cfg = await getEffectiveConfig();
   const tokens = tokenAddresses.map((t) => t.toLowerCase());
-  const minTvl = String(Math.max(1000, cfg.POOL_MIN_TVL_USD / 10));
+  const minTvl = String(Math.max(1, cfg.POOL_MIN_TVL_USD / 10));
   const [a, b] = await Promise.all([
     graphQuery<{ pools: GPool[] }>(POOLS_TOKEN0_QUERY, { tokens, minTvl }),
     graphQuery<{ pools: GPool[] }>(POOLS_TOKEN1_QUERY, { tokens, minTvl }),

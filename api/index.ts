@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import {
   createClients,
   getConfig,
+  getBotPresence,
   isPublicDemoRuntime,
   listActivity,
   loadPolicySettings,
@@ -37,6 +38,7 @@ function envList(key: string): string[] {
 app.get("/health", async (c) => {
   const policy = await loadPolicySettings();
   const watchedPools = envList("WATCHED_POOLS");
+  const bot = await getBotPresence();
   return c.json({
     ok: true,
     chainId: Number(process.env.CHAIN_ID ?? 11155111),
@@ -48,6 +50,7 @@ app.get("/health", async (c) => {
     watchedPositions: envList("WATCHED_POSITION_IDS").length,
     safeWallet: process.env.SAFE_WALLET_ADDRESS?.trim() || null,
     policy,
+    bot,
   });
 });
 

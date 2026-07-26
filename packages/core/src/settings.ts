@@ -40,7 +40,7 @@ export const DEFAULT_POLICY: PolicySettings = {
   priceDropThresholdPct: 15,
   depegThresholdBps: 100,
   poolTvlDropThresholdPct: 25,
-  poolMinTvlUsd: 50_000,
+  poolMinTvlUsd: 10,
   panicConfirmations: 2,
   minPanicSeverity: "high",
   slippageTolerance: 1,

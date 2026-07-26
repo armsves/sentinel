@@ -6,7 +6,7 @@ export type ZgScore = {
   severity: Severity;
   rationale: string;
   whichSourcesMatter: string[];
-  provider: "0g-router" | "heuristic-fallback";
+  provider: "0g-router" | "0g-skipped";
 };
 
 const SYSTEM = `You are Sentinel risk brain for a DeFi panic-button agent.
@@ -16,9 +16,24 @@ rationale (short string), whichSourcesMatter (string array).
 Prefer precision over recall when evidence is weak.
 Critical only for clear live exploits, depegs, or sharp pool drains.`;
 
-function heuristicScore(signals: NormalizedSignal[]): ZgScore {
-  const sources = [...new Set(signals.map((s) => s.source))];
-  const max = signals.reduce(
+const skipped = (
+  rationale: string,
+  whichSourcesMatter: string[] = [],
+): ZgScore => ({
+  score: 0,
+  shouldPanic: false,
+  severity: "low",
+  rationale,
+  whichSourcesMatter,
+  provider: "0g-skipped",
+});
+
+let lastCallAt = 0;
+let backoffUntil = 0;
+let consecutiveRateLimits = 0;
+
+function maxSeverity(signals: NormalizedSignal[]): Severity {
+  return signals.reduce(
     (acc, s) =>
       ({ low: 1, medium: 2, high: 3, critical: 4 }[s.severity] >
       { low: 1, medium: 2, high: 3, critical: 4 }[acc]
@@ -26,16 +41,6 @@ function heuristicScore(signals: NormalizedSignal[]): ZgScore {
         : acc),
     "low" as Severity,
   );
-  const score =
-    max === "critical" ? 0.92 : max === "high" ? 0.75 : max === "medium" ? 0.45 : 0.2;
-  return {
-    score,
-    shouldPanic: max === "critical" || (max === "high" && sources.length >= 2),
-    severity: max,
-    rationale: `Heuristic fallback from ${signals.length} signal(s): ${sources.join(", ")}`,
-    whichSourcesMatter: sources,
-    provider: "heuristic-fallback",
-  };
 }
 
 function extractJson(text: string): unknown {
@@ -49,31 +54,59 @@ function extractJson(text: string): unknown {
   }
 }
 
+function parseRetryAfterMs(res: Response): number | null {
+  const raw = res.headers.get("retry-after");
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const when = Date.parse(raw);
+  if (Number.isFinite(when)) return Math.max(0, when - Date.now());
+  return null;
+}
+
 export async function scoreSignalsWith0G(
   signals: NormalizedSignal[],
+  opts?: { force?: boolean },
 ): Promise<ZgScore> {
   if (!signals.length) {
-    return {
-      score: 0,
-      shouldPanic: false,
-      severity: "low",
-      rationale: "no signals",
-      whichSourcesMatter: [],
-      provider: "heuristic-fallback",
-    };
+    return skipped("no signals");
   }
 
   const cfg = getConfig();
+  const sources = [...new Set(signals.map((s) => s.source))];
+
   if (
     !cfg.ZG_SCORING_ENABLED ||
     cfg.ZG_COMPUTE_MODE === "off" ||
     !cfg.ZG_ROUTER_API_KEY
   ) {
-    logger.info("0G scoring skipped — using heuristic", {
+    logger.info("0G scoring skipped", {
       enabled: cfg.ZG_SCORING_ENABLED,
       hasKey: Boolean(cfg.ZG_ROUTER_API_KEY),
     });
-    return heuristicScore(signals);
+    return skipped("0G scoring disabled or missing API key", sources);
+  }
+
+  const now = Date.now();
+  const minInterval = Math.max(0, cfg.ZG_MIN_INTERVAL_MS);
+
+  if (!opts?.force) {
+    if (now < backoffUntil) {
+      const waitMs = backoffUntil - now;
+      logger.warn("0G scoring skipped — rate-limit backoff", { waitMs });
+      return skipped(`0G rate-limited; retry in ${Math.ceil(waitMs / 1000)}s`, sources);
+    }
+    if (lastCallAt > 0 && now - lastCallAt < minInterval) {
+      const waitMs = minInterval - (now - lastCallAt);
+      logger.info("0G scoring skipped — min interval", {
+        waitMs,
+        minIntervalMs: minInterval,
+      });
+      return skipped(
+        `0G throttled; next call in ${Math.ceil(waitMs / 1000)}s`,
+        sources,
+      );
+    }
   }
 
   const compact = signals.slice(0, 20).map((s) => ({
@@ -84,6 +117,8 @@ export async function scoreSignalsWith0G(
     addresses: s.addresses.slice(0, 5),
     tokens: s.tokens?.slice(0, 8),
   }));
+
+  lastCallAt = now;
 
   try {
     const res = await fetch(`${cfg.ZG_ROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
@@ -111,6 +146,25 @@ export async function scoreSignalsWith0G(
         ],
       }),
     });
+
+    if (res.status === 429) {
+      consecutiveRateLimits += 1;
+      const retryMs =
+        parseRetryAfterMs(res) ??
+        Math.min(10 * 60_000, 60_000 * 2 ** Math.min(consecutiveRateLimits - 1, 3));
+      backoffUntil = Date.now() + retryMs;
+      const body = await res.text().catch(() => "");
+      logger.warn("0G scoring rate-limited — backing off", {
+        retryMs,
+        consecutiveRateLimits,
+        body: body.slice(0, 200),
+      });
+      return skipped(
+        `0G rate-limited; backoff ${Math.ceil(retryMs / 1000)}s`,
+        sources,
+      );
+    }
+
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
       error?: unknown;
@@ -118,6 +172,10 @@ export async function scoreSignalsWith0G(
     if (!res.ok) {
       throw new Error(`0G router ${res.status}: ${JSON.stringify(json.error ?? json)}`);
     }
+
+    consecutiveRateLimits = 0;
+    backoffUntil = 0;
+
     const content = json.choices?.[0]?.message?.content ?? "";
     const parsed = extractJson(content) as Partial<ZgScore>;
     const score = Math.min(1, Math.max(0, Number(parsed.score ?? 0)));
@@ -125,7 +183,7 @@ export async function scoreSignalsWith0G(
       String(parsed.severity),
     )
       ? parsed.severity
-      : heuristicScore(signals).severity) as Severity;
+      : maxSeverity(signals)) as Severity;
     return {
       score,
       shouldPanic: Boolean(parsed.shouldPanic),
@@ -133,13 +191,16 @@ export async function scoreSignalsWith0G(
       rationale: String(parsed.rationale ?? "0G scored signals"),
       whichSourcesMatter: Array.isArray(parsed.whichSourcesMatter)
         ? parsed.whichSourcesMatter.map(String)
-        : [...new Set(signals.map((s) => s.source))],
+        : sources,
       provider: "0g-router",
     };
   } catch (err) {
-    logger.warn("0G scoring failed — heuristic fallback", {
+    logger.warn("0G scoring failed — skipping (no heuristic)", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return heuristicScore(signals);
+    return skipped(
+      `0G unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      sources,
+    );
   }
 }

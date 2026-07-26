@@ -148,7 +148,17 @@ export async function pollXExploitSignals(): Promise<NormalizedSignal[]> {
     afterWatchFilter: signals.length,
     fixture: usingFixture,
     accounts: cfg.xWatchAccounts,
-    categories: signals.map((s) => s.category),
   });
+  if (signals.length) {
+    logger.signals(
+      `${signals.length} X threat signal(s)`,
+      signals.map((s) => ({
+        source: s.source,
+        severity: s.severity,
+        category: s.category,
+        message: s.message,
+      })),
+    );
+  }
   return signals;
 }

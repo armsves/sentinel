@@ -132,7 +132,7 @@ async function runWithSignals(opts: {
     message: signals.map((s) => s.message).join(" | ").slice(0, 280),
   });
 
-  const zg = await scoreSignalsWith0G(signals);
+  const zg = await scoreSignalsWith0G(signals, { force: true });
   await emitActivity({
     agent: "demo",
     phase: "score",

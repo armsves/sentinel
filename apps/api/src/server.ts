@@ -8,6 +8,7 @@ import {
   enqueuePanic,
   getConfig,
   getEffectiveConfig,
+  getBotPresence,
   isDryRunAsync,
   isPublicDemoRuntime,
   listActivity,
@@ -51,6 +52,7 @@ function checkGliderSecret(header: string | undefined): boolean {
 app.get("/api/health", async (c) => {
   const cfg = await getEffectiveConfig();
   const policy = await loadPolicySettings();
+  const bot = await getBotPresence();
   return c.json({
     ok: true,
     chainId: cfg.CHAIN_ID,
@@ -65,6 +67,7 @@ app.get("/api/health", async (c) => {
     policy,
     store: useRedisStore() ? "redis" : "file",
     publicDemo: isPublicDemoRuntime(),
+    bot,
   });
 });
 
@@ -309,7 +312,7 @@ app.post("/api/panic/simulate", async (c) => {
   if (source === "glider" || source === "both") {
     signals.push(normalizeGliderWebhook(GLIDER_FIXTURE));
   }
-  const zg = await scoreSignalsWith0G(signals);
+  const zg = await scoreSignalsWith0G(signals, { force: true });
   const positions = cfg.watchedPools.map((pool) => ({
     chainId: cfg.CHAIN_ID,
     pool,

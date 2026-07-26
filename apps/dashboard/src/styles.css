@@ -208,6 +208,72 @@ input {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+.bot-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-elev) 80%, transparent);
+  user-select: none;
+}
+
+.bot-status-light {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #5a6660;
+  box-shadow: none;
+}
+
+.bot-status.on {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+}
+
+.bot-status.on .bot-status-light {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  animation: bot-pulse 1.6s ease-out infinite;
+}
+
+.bot-status.off {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+
+.bot-status.off .bot-status-light {
+  background: var(--danger);
+}
+
+@keyframes bot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (max-width: 640px) {
+  .bot-status-label {
+    display: none;
+  }
+
+  .bot-status {
+    margin-left: 0;
+    padding: 0.4rem;
+  }
+}
+
 .brand {
   font-family: var(--font-display);
   font-size: clamp(2.5rem, 8vw, 4.5rem);

@@ -7,6 +7,7 @@ import {
   getConfig,
   loadPolicySettings,
   logger,
+  pulseBotHeartbeat,
   type NormalizedSignal,
   type PanicEvent,
 } from "@sentinel/core";
@@ -50,14 +51,13 @@ async function scanGraph(): Promise<{
     tokenAddresses: uniquePortfolio,
   });
 
-  logger.info("portfolio snapshot", {
-    owner: address,
-    tokens: portfolio.map((t) => ({
-      symbol: t.symbol,
-      balance: formatUnits(BigInt(t.balanceRaw), t.decimals),
+  logger.info("portfolio snapshot", { owner: address });
+  for (const t of portfolio) {
+    const bal = formatUnits(BigInt(t.balanceRaw), t.decimals);
+    logger.info(`token  ${t.symbol.padEnd(8)} ${bal}`, {
       address: t.address,
-    })),
-  });
+    });
+  }
 
   const held = portfolio
     .filter((t) => BigInt(t.balanceRaw) > 0n)
@@ -85,14 +85,32 @@ async function scanGraph(): Promise<{
   logger.info("pool health", {
     count: pools.length,
     unhealthy: pools.filter((p) => !p.healthy).length,
-    sample: pools.slice(0, 5).map((p) => ({
-      pool: p.poolAddress,
-      pair: `${p.token0.symbol}/${p.token1.symbol}`,
-      tvlUsd: Math.round(p.tvlUsd),
-      healthy: p.healthy,
-      issues: p.issues,
-    })),
   });
+  const unhealthy = pools.filter((p) => !p.healthy);
+  if (unhealthy.length) {
+    logger.signals(
+      `${unhealthy.length} unhealthy pool(s)`,
+      unhealthy.map((p) => ({
+        source: "graph",
+        severity: p.issues.some((i) => /depeg|stop-loss|dropped|zero/i.test(i))
+          ? "high"
+          : "medium",
+        category: p.issues.some((i) => /depeg/i.test(i))
+          ? "depeg"
+          : p.issues.some((i) => /stop-loss|price/i.test(i))
+            ? "price"
+            : "pool_health",
+        message: `${p.token0.symbol}/${p.token1.symbol} TVL $${Math.round(p.tvlUsd)} — ${p.issues.join("; ")}`,
+      })),
+    );
+  } else {
+    for (const p of pools.slice(0, 5)) {
+      logger.info(
+        `pool ok  ${p.token0.symbol}/${p.token1.symbol}  TVL $${Math.round(p.tvlUsd)}`,
+        { pool: p.poolAddress },
+      );
+    }
+  }
 
   const ownerPositions = await listOwnerPositions(publicClient, address).catch(
     (err: unknown) => {
@@ -241,7 +259,7 @@ async function maybeEnqueuePanic(
         severity: "low" as const,
         rationale: "0G scoring disabled in settings",
         whichSourcesMatter: [] as string[],
-        provider: "heuristic-fallback" as const,
+        provider: "0g-skipped" as const,
       };
   logger.info("0G risk score", {
     provider: zg.provider,
@@ -290,19 +308,22 @@ export async function runScanner() {
 
   const tick = async () => {
     try {
+      await pulseBotHeartbeat("scanner").catch(() => undefined);
       const { signals, positions } = await scanOnce();
       const bySource = signals.reduce<Record<string, number>>((acc, s) => {
         acc[s.source] = (acc[s.source] ?? 0) + 1;
         return acc;
       }, {});
       if (signals.length) {
-        logger.warn("active signals", {
-          count: signals.length,
-          bySource,
-          messages: signals.map(
-            (s) => `[${s.source}/${s.severity}/${s.category}] ${s.message}`,
-          ),
-        });
+        logger.signals(
+          `${signals.length} active signal(s)`,
+          signals.map((s) => ({
+            source: s.source,
+            severity: s.severity,
+            category: s.category,
+            message: s.message,
+          })),
+        );
         const { emitActivity } = await import("@sentinel/core");
         await emitActivity({
           agent: "scanner",
