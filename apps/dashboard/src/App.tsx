@@ -451,10 +451,6 @@ export function App() {
           busy={busy}
           saveSettings={saveSettings}
           toggleStable={toggleStable}
-          chatInput={chatInput}
-          setChatInput={setChatInput}
-          chatLog={chatLog}
-          runChat={runChat}
           publicDemo={Boolean(health?.publicDemo)}
         />
       ) : null}
@@ -1108,39 +1104,6 @@ function ConfigPage(props: {
       ) : (
         <p className="empty">Loading settings…</p>
       )}
-
-      <section className="panel" style={{ marginTop: "1.5rem" }}>
-        <h2>Chat with Sentinel (0G)</h2>
-        <p className="empty" style={{ marginBottom: "0.75rem" }}>
-          Talk to the agent via 0G Compute router.
-        </p>
-        <div className="chat-log">
-          {chatLog.length === 0 ? (
-            <p className="empty">No messages yet.</p>
-          ) : (
-            chatLog.map((m, i) => (
-              <div key={`${m.role}-${i}`} className={`chat-bubble ${m.role}`}>
-                <strong>{m.role === "user" ? "you" : "sentinel"}</strong>
-                <pre>{m.content}</pre>
-              </div>
-            ))
-          )}
-        </div>
-        <form className="form" onSubmit={(e) => void runChat(e)}>
-          <input
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Ask Sentinel something…"
-          />
-          <button
-            className="primary"
-            disabled={busy || !chatInput.trim()}
-            type="submit"
-          >
-            Send via 0G
-          </button>
-        </form>
-      </section>
     </>
   );
 }
