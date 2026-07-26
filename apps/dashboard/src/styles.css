@@ -293,29 +293,8 @@ input {
     radial-gradient(ellipse 50% 40% at 90% 0%, #3a2218 0%, transparent 50%);
 }
 
-.hero-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-}
-
 .hero-copy {
   min-width: 0;
-  flex: 1;
-}
-
-.hero-logo {
-  width: clamp(5.5rem, 14vw, 9rem);
-  height: auto;
-  flex-shrink: 0;
-  display: none;
-}
-
-@media (min-width: 720px) {
-  .hero-logo {
-    display: block;
-  }
 }
 
 .hero-kicker {
