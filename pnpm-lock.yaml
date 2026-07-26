@@ -14,6 +14,9 @@ importers:
       '@sentinel/core':
         specifier: workspace:*
         version: link:packages/core
+      '@sentinel/graph':
+        specifier: workspace:*
+        version: link:packages/graph
       '@sentinel/monitors':
         specifier: workspace:*
         version: link:packages/monitors

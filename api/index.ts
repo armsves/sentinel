@@ -196,12 +196,11 @@ app.post("/demo/run", async (c) => {
 });
 
 app.post("/chat", async (c) => {
-  const body = await c.req
-    .json<{
-      message?: string;
-      history?: Array<{ role: "user" | "assistant"; content: string }>;
-    }>()
-    .catch(() => ({} as { message?: string }));
+  type ChatBody = {
+    message?: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  };
+  const body = await c.req.json<ChatBody>().catch((): ChatBody => ({}));
   const message = body.message?.trim();
   if (!message) return c.json({ error: "message is required" }, 400);
   try {

@@ -25,6 +25,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.1",
     "@sentinel/core": "workspace:*",
+    "@sentinel/graph": "workspace:*",
     "@sentinel/monitors": "workspace:*",
     "@sentinel/uniswap": "workspace:*",
     "@sentinel/zg": "workspace:*",
