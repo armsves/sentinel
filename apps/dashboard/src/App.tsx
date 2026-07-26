@@ -471,33 +471,23 @@ function HomePage({
   return (
     <div className="home">
       <section className="hero">
-        <div className="hero-row">
-          <div className="hero-copy">
-            <p className="hero-kicker">ETHGlobal Lisbon 2026</p>
-            <h1 className="brand hero-brand">SENTINEL</h1>
-            <p className="hero-lead">
-              The DeFi panic button — exit Uniswap LP before the pool turns
-              toxic.
-            </p>
-            <div className="hero-cta">
-              <button type="button" className="primary" onClick={onOpenControl}>
-                Open control
-              </button>
-              <button type="button" onClick={onOpenConfig}>
-                Configure policy
-              </button>
-              <button type="button" onClick={onOpenPortfolio}>
-                Check portfolio
-              </button>
-            </div>
+        <div className="hero-copy">
+          <p className="hero-kicker">ETHGlobal Lisbon 2026</p>
+          <h1 className="brand hero-brand">SENTINEL</h1>
+          <p className="hero-lead">
+            Stop-loss for your entire portfolio and positions
+          </p>
+          <div className="hero-cta">
+            <button type="button" className="primary" onClick={onOpenControl}>
+              Open control
+            </button>
+            <button type="button" onClick={onOpenConfig}>
+              Configure policy
+            </button>
+            <button type="button" onClick={onOpenPortfolio}>
+              Check portfolio
+            </button>
           </div>
-          <img
-            src="/sentinel-logo.png"
-            alt=""
-            className="hero-logo"
-            width={160}
-            height={160}
-          />
         </div>
       </section>
 
