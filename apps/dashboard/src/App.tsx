@@ -499,11 +499,6 @@ function HomePage({
           time a Telegram alert is read, LP is already underwater — and clicking
           through a wallet UI is too slow.
         </p>
-        <ul className="pitch-points">
-          <li>Threat intel arrives after the damage starts</li>
-          <li>Stop-loss / peg / TVL breaches need instant reaction</li>
-          <li>Manual exits fail under stress and time pressure</li>
-        </ul>
       </section>
 
       <section className="pitch-slide">
@@ -514,38 +509,33 @@ function HomePage({
           policy thresholds trip, it withdraws LP, swaps into stables, and
           transfers to a safe wallet — no human in the loop.
         </p>
-        <ul className="pitch-points">
-          <li>Policy you set: stop-loss, depeg, TVL, severity</li>
-          <li>Multi-source confirm before live exits</li>
-          <li>Dry-run demo now; live execution with your keys locally</li>
-        </ul>
       </section>
 
       <section className="pitch-slide">
         <p className="pitch-index">03 · How it works</p>
-        <h2>Watch → score → exit</h2>
-        <ol className="pitch-steps">
-          <li>
+        <h2>Watch → score → execute</h2>
+        <ol className="pitch-flow">
+          <li className="pitch-flow-card">
             <strong>Watch</strong>
             <span>
-              The Graph pool health, Blockaid/X, Glider webhooks, optional Forta
+              Pool health, Blockaid/X threat reports, and token price feeds —
+              continuously, without a human on the clock.
             </span>
           </li>
-          <li>
+          <li className="pitch-flow-card">
             <strong>Score</strong>
-            <span>0G Compute ranks severity and whether to panic</span>
-          </li>
-          <li>
-            <strong>Exit</strong>
             <span>
-              Withdraw LP → swap to USDC/USDT/DAI → transfer to safe wallet
+              0G Compute ranks severity and decides whether to execute the
+              flight-to-safety plan.
+            </span>
+          </li>
+          <li className="pitch-flow-card">
+            <strong>Execute</strong>
+            <span>
+              Withdraw LP → swap to USDC/USDT/DAI → transfer to safe wallet.
             </span>
           </li>
         </ol>
-        <p className="prose pitch-stack">
-          Built on Uniswap Trading + LP APIs, The Graph, 0G Compute, Hexens
-          Glider, and Blockaid/X.
-        </p>
       </section>
 
       <section className="pitch-slide pitch-close">
