@@ -31,19 +31,25 @@ pnpm api
 pnpm dashboard
 ```
 
-### Windows
+### Windows (Command Prompt)
 
-Packages must be built into `dist/` before the bot runs. If you see `ERR_MODULE_NOT_FOUND` for `@sentinel/core/dist` or `has no exported member 'logger'`, clean stale build artifacts and rebuild:
+You were in **cmd.exe**, not PowerShell — `Get-ChildItem` only works in PowerShell. After pulling latest, just:
 
-```powershell
+```bat
 git pull
-Get-ChildItem -Path packages -Recurse -Directory -Filter dist | Remove-Item -Recurse -Force
-Get-ChildItem -Path packages -Recurse -Filter tsconfig.tsbuildinfo | Remove-Item -Force
-pnpm build
 pnpm bot
 ```
 
-`pnpm bot` also runs `build:packages` first (core → graph → monitors → uniswap → zg, one after another) so a plain `pnpm -r build` race on Windows is avoided.
+That runs `pnpm clean` (deletes all `packages/*/dist` + `tsconfig.tsbuildinfo`) then builds packages one-by-one before starting.
+
+Manual clean if needed:
+
+```bat
+rmdir /s /q packages\core\dist packages\graph\dist packages\monitors\dist packages\uniswap\dist packages\zg\dist 2>nul
+del /s /q packages\*\tsconfig.tsbuildinfo 2>nul
+pnpm clean
+pnpm bot
+```
 
 Set `EXECUTION_MODE=live` only when you intend to broadcast.
 
