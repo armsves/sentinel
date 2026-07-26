@@ -492,17 +492,17 @@ function HomePage({
       </section>
 
       <section className="pitch-slide">
-        <p className="pitch-index">01 · Problem</p>
+        <p className="pitch-index">Problem</p>
         <h2>Humans cannot watch liquidity 24/7</h2>
         <p className="prose">
-          Exploits, stablecoin depegs, and pool drains move in seconds. By the
-          time a Telegram alert is read, LP is already underwater — and clicking
-          through a wallet UI is too slow.
+          Exploits, stablecoin depegs, token dump and pool drains move in
+          seconds. By the time a Telegram alert is read, LP is already underwater
+          and clicking through a wallet UI is too slow.
         </p>
       </section>
 
       <section className="pitch-slide">
-        <p className="pitch-index">02 · Solution</p>
+        <p className="pitch-index">Solution</p>
         <h2>An always-on flight-to-safety agent</h2>
         <p className="prose">
           Sentinel watches your Uniswap positions and fused threat feeds. When
@@ -512,7 +512,7 @@ function HomePage({
       </section>
 
       <section className="pitch-slide">
-        <p className="pitch-index">03 · How it works</p>
+        <p className="pitch-index">How it works</p>
         <h2>Watch → score → execute</h2>
         <ol className="pitch-flow">
           <li className="pitch-flow-card">
@@ -539,7 +539,7 @@ function HomePage({
       </section>
 
       <section className="pitch-slide pitch-close">
-        <p className="pitch-index">04 · Demo</p>
+        <p className="pitch-index">Demo</p>
         <h2>Fire an incident on stage</h2>
         <p className="prose">
           Trigger a stop-loss, depeg, or exploit simulation and watch every
