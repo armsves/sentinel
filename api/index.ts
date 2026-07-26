@@ -198,7 +198,6 @@ app.post("/actions/swap", async (c) => {
     "0x0000000000000000000000000000000000000001";
   const base = (
     process.env.UNISWAP_TRADE_API_BASE_URL ||
-    process.env.UNISWAP_API_BASE_URL ||
     "https://trade-api.gateway.uniswap.org/v1"
   ).replace(/\/$/, "");
 
