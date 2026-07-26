@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   buildPanicEvent,
   createClients,
@@ -272,7 +274,7 @@ async function maybeEnqueuePanic(
   }
 }
 
-async function main() {
+export async function runScanner() {
   const cfg = getConfig();
   logger.info("scanner starting", {
     chainId: cfg.CHAIN_ID,
@@ -324,9 +326,21 @@ async function main() {
   setInterval(tick, cfg.SCAN_INTERVAL_MS);
 }
 
-main().catch((err) => {
-  logger.error("scanner crashed", {
-    error: err instanceof Error ? err.message : String(err),
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  runScanner().catch((err) => {
+    logger.error("scanner crashed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    process.exit(1);
   });
-  process.exit(1);
-});
+}

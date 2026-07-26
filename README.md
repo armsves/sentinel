@@ -20,16 +20,13 @@ cp .env.example .env
 
 pnpm install
 
-# Terminal A — poll portfolio tokens + Uniswap pool health + X/Blockaid
-pnpm scanner
+# Terminal A — scanner + panic worker (one process)
+pnpm bot
 
-# Terminal B — panic worker (consumes queue)
-pnpm panic-worker
-
-# Terminal C — HTTP API
+# Terminal B — HTTP API (only if not using Vercel UI)
 pnpm api
 
-# Terminal D — control UI (http://localhost:5173)
+# Terminal C — control UI (optional; or use https://sentinel-lisbon.vercel.app)
 pnpm dashboard
 
 # Or CLI
