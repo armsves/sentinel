@@ -518,7 +518,7 @@ function HomePage({
           <li className="pitch-flow-card">
             <strong>Watch</strong>
             <span>
-              Pool health, Blockaid/X threat reports, and token price feeds —
+              Pool health, Blockaid/X threat reports, and token price feeds
               continuously, without a human on the clock.
             </span>
           </li>
