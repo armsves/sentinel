@@ -394,7 +394,9 @@ export function App() {
         hash?: string;
         amountIn?: string;
         amountOut?: string | null;
+        gasFeeEth?: string | null;
         gasFeeUSD?: string | number | null;
+        gasUseEstimate?: string | number | null;
         route?: string | null;
         requestId?: string | null;
       }>("/api/actions/swap", {
@@ -408,7 +410,13 @@ export function App() {
       });
       const out = res.amountOut ? ` → ${res.amountOut} out` : "";
       const gas =
-        res.gasFeeUSD != null ? ` · gas ~$${Number(res.gasFeeUSD).toFixed(2)}` : "";
+        res.gasFeeUSD != null
+          ? ` · gas ~$${Number(res.gasFeeUSD).toFixed(2)}`
+          : res.gasFeeEth != null
+            ? ` · gas ~${res.gasFeeEth} ETH`
+            : res.gasUseEstimate != null
+              ? ` · gas ~${res.gasUseEstimate} units`
+              : "";
       toast.success(
         `Dry-run quote ${res.routing}${out}${gas}${res.hash ? ` · ${res.hash}` : ""}`,
       );

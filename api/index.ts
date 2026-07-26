@@ -252,6 +252,7 @@ app.post("/actions/swap", async (c) => {
     const quote = (json.quote ?? {}) as {
       input?: { amount?: string; token?: string };
       output?: { amount?: string; token?: string; minimumAmount?: string };
+      gasFee?: string;
       gasFeeUSD?: string | number;
       gasUseEstimate?: string | number;
       routeString?: string;
@@ -268,6 +269,22 @@ app.post("/actions/swap", async (c) => {
           )
         : null;
 
+    // Uniswap's gasFeeUSD on testnets prices gas as if mainnet ETH —
+    // prefer native units from gasFee (wei). USD only trusted on mainnet.
+    let gasFeeWei: string | null = null;
+    let gasFeeEth: string | null = null;
+    if (quote.gasFee != null && /^\d+$/.test(String(quote.gasFee))) {
+      gasFeeWei = String(quote.gasFee);
+      const eth = Number(gasFeeWei) / 1e18;
+      gasFeeEth = eth.toFixed(eth >= 0.001 ? 6 : 8);
+    }
+    const isMainnet = chainId === 1;
+    const gasFeeUSD = isMainnet
+      ? quote.gasFeeUSD != null
+        ? Number(quote.gasFeeUSD)
+        : null
+      : null;
+
     return c.json({
       mode: "dry_run",
       routing: json.routing ?? "unknown",
@@ -280,7 +297,9 @@ app.post("/actions/swap", async (c) => {
       amountOut: outHuman,
       amountOutRaw: outRaw ?? null,
       minimumAmountOut: quote.output?.minimumAmount ?? null,
-      gasFeeUSD: quote.gasFeeUSD ?? null,
+      gasFeeWei,
+      gasFeeEth,
+      gasFeeUSD,
       gasUseEstimate: quote.gasUseEstimate ?? null,
       route: quote.routeString ?? null,
       priceImpact: quote.priceImpact ?? null,
