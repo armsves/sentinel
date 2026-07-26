@@ -455,6 +455,30 @@ export function App() {
           onRefresh={() => void refresh()}
         />
       ) : null}
+
+      <footer className="site-footer">
+        <a
+          href="https://x.com/armsves"
+          target="_blank"
+          rel="noreferrer"
+        >
+          x.com/armsves
+        </a>
+        <span className="site-footer-sponsors">
+          Sponsors:{" "}
+          <a href="https://uniswap.org" target="_blank" rel="noreferrer">
+            Uniswap
+          </a>
+          <span aria-hidden="true"> · </span>
+          <a href="https://thegraph.com" target="_blank" rel="noreferrer">
+            The Graph
+          </a>
+          <span aria-hidden="true"> · </span>
+          <a href="https://0g.ai" target="_blank" rel="noreferrer">
+            0G
+          </a>
+        </span>
+      </footer>
     </div>
   );
 }
