@@ -159,12 +159,6 @@ export function App() {
   const [breachBps, setBreachBps] = useState(180);
   const [tvlDropPct, setTvlDropPct] = useState(25);
   const [breachTvlPct, setBreachTvlPct] = useState(40);
-  const [chatInput, setChatInput] = useState(
-    "Say hi and confirm you are running on 0G Compute.",
-  );
-  const [chatLog, setChatLog] = useState<
-    Array<{ role: "user" | "assistant"; content: string }>
-  >([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -336,46 +330,6 @@ export function App() {
     }
   }
 
-  async function runChat(e: FormEvent) {
-    e.preventDefault();
-    const text = chatInput.trim();
-    if (!text) return;
-    setBusy(true);
-    const nextHistory = [...chatLog, { role: "user" as const, content: text }];
-    setChatLog(nextHistory);
-    setChatInput("");
-    try {
-      const res = await api<{ reply: string; model: string; provider: string }>(
-        "/api/chat",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            message: text,
-            history: nextHistory.slice(0, -1),
-          }),
-        },
-      );
-      setChatLog([
-        ...nextHistory,
-        {
-          role: "assistant",
-          content: `${res.reply}\n\n— ${res.provider} · ${res.model}`,
-        },
-      ]);
-    } catch (err) {
-      setChatLog([
-        ...nextHistory,
-        {
-          role: "assistant",
-          content: `Error: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      ]);
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="shell">
       <header className="topbar">
@@ -451,7 +405,6 @@ export function App() {
           busy={busy}
           saveSettings={saveSettings}
           toggleStable={toggleStable}
-          publicDemo={Boolean(health?.publicDemo)}
         />
       ) : null}
 
@@ -827,11 +780,6 @@ function ConfigPage(props: {
   busy: boolean;
   saveSettings: (e: FormEvent) => void;
   toggleStable: (sym: "USDC" | "USDT" | "DAI") => void;
-  chatInput: string;
-  setChatInput: (v: string) => void;
-  chatLog: Array<{ role: "user" | "assistant"; content: string }>;
-  runChat: (e: FormEvent) => void;
-  publicDemo: boolean;
 }) {
   const {
     policy,
@@ -839,21 +787,12 @@ function ConfigPage(props: {
     busy,
     saveSettings,
     toggleStable,
-    chatInput,
-    setChatInput,
-    chatLog,
-    runChat,
-    publicDemo,
   } = props;
 
   return (
     <>
       <section className="page-head">
         <h1>Configuration</h1>
-        <p className="tagline">
-          Thresholds, exit actions, and signal sources the agents read every
-          tick.
-        </p>
       </section>
 
       {policy ? (
@@ -1058,43 +997,6 @@ function ConfigPage(props: {
                 Transfer stables to safe wallet
               </label>
             </fieldset>
-
-            <fieldset className="checks">
-              <legend>Signal sources</legend>
-              {(
-                [
-                  ["graph", "The Graph pools"],
-                  ["x", "Blockaid / X"],
-                  ["glider", "Glider webhooks"],
-                  ["forta", "Forta poll"],
-                  ["zg", "0G scoring"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="check">
-                  <input
-                    type="checkbox"
-                    checked={policy.sources[key]}
-                    onChange={(e) =>
-                      setPolicy({
-                        ...policy,
-                        sources: {
-                          ...policy.sources,
-                          [key]: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </fieldset>
-
-            {publicDemo ? (
-              <p className="hint">
-                Public demo forces <code>dry_run</code>. Live execution only
-                runs on your local API with keys.
-              </p>
-            ) : null}
 
             <button className="primary" disabled={busy} type="submit">
               Save policy
