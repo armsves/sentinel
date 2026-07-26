@@ -56,6 +56,7 @@ type Position = {
   protocol: string;
   nftTokenId?: string;
   pool?: string;
+  poolAddress?: string;
   token0Address: string;
   token1Address: string;
   liquidity?: string;
@@ -63,12 +64,25 @@ type Position = {
   note?: string;
 };
 
+type PortfolioTokenRow = {
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  balance: string;
+  balanceRaw: string;
+};
+
 type PositionsPayload = {
   address: string;
   positions: Position[];
+  watchedPositions?: Position[];
+  otherPositions?: Position[];
+  tokens?: PortfolioTokenRow[];
   safeWallet?: string | null;
   watchedPools?: string[];
   publicDemo?: boolean;
+  error?: string;
 };
 
 type DemoPlanStep = {
@@ -143,6 +157,8 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [otherPositions, setOtherPositions] = useState<Position[]>([]);
+  const [tokens, setTokens] = useState<PortfolioTokenRow[]>([]);
   const [watchedPools, setWatchedPools] = useState<string[]>([]);
   const [wallet, setWallet] = useState("");
   const [safeWallet, setSafeWallet] = useState<string | null>(null);
@@ -166,13 +182,21 @@ export function App() {
         api<Health>("/api/health"),
         api<{ items: QueueItem[] }>("/api/queue"),
         api<PositionsPayload>("/api/positions").catch(
-          (): PositionsPayload => ({ address: "", positions: [] }),
+          (): PositionsPayload => ({
+            address: "",
+            positions: [],
+            tokens: [],
+            watchedPositions: [],
+            otherPositions: [],
+          }),
         ),
         api<{ policy: PolicySettings }>("/api/settings"),
       ]);
       setHealth(h);
       setQueue(q.items);
-      setPositions(p.positions);
+      setPositions(p.watchedPositions ?? p.positions ?? []);
+      setOtherPositions(p.otherPositions ?? []);
+      setTokens(p.tokens ?? []);
       setWatchedPools(p.watchedPools ?? []);
       setWallet(p.address);
       setSafeWallet(p.safeWallet ?? h.safeWallet ?? null);
@@ -412,7 +436,9 @@ export function App() {
         <PortfolioPage
           wallet={wallet}
           safeWallet={safeWallet}
+          tokens={tokens}
           positions={positions}
+          otherPositions={otherPositions}
           watchedPools={watchedPools}
           queue={queue}
           health={health}
@@ -961,7 +987,9 @@ function ConfigPage(props: {
 function PortfolioPage(props: {
   wallet: string;
   safeWallet: string | null;
+  tokens: PortfolioTokenRow[];
   positions: Position[];
+  otherPositions: Position[];
   watchedPools: string[];
   queue: QueueItem[];
   health: Health | null;
@@ -972,7 +1000,9 @@ function PortfolioPage(props: {
   const {
     wallet,
     safeWallet,
+    tokens,
     positions,
+    otherPositions,
     watchedPools,
     queue,
     health,
@@ -1032,29 +1062,30 @@ function PortfolioPage(props: {
               <dd>{policy?.safeAssets.join(" → ") ?? "…"}</dd>
             </div>
           </dl>
-          {publicDemo ? (
-            <p className="hint" style={{ marginTop: "0.85rem" }}>
-              Public demo shows configured watch targets. Live NFT positions
-              require the local API with RPC + wallet.
-            </p>
-          ) : null}
         </section>
 
         <section className="panel">
-          <h2>Watched pools</h2>
-          {watchedPools.length === 0 ? (
+          <h2>Token balances</h2>
+          {tokens.length === 0 ? (
             <p className="empty">
-              No pools in <code>WATCHED_POOLS</code>
-              {health?.watchedPools
-                ? ` (health reports ${health.watchedPools}).`
-                : "."}
+              No balances yet
+              {publicDemo && !wallet ? " — set WALLET_ADDRESS on the API" : ""}.
             </p>
           ) : (
             <ul className="list">
-              {watchedPools.map((pool) => (
-                <li key={pool} className="item">
-                  <div>Uniswap v3 pool</div>
-                  <div className="meta mono">{pool}</div>
+              {tokens.map((t) => (
+                <li key={t.address} className="item">
+                  <div>
+                    {t.symbol}
+                    <span className="meta" style={{ marginLeft: "0.5rem" }}>
+                      {t.name}
+                    </span>
+                  </div>
+                  <div className="meta mono">
+                    {t.balance}
+                    <br />
+                    {shortAddr(t.address)}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1064,88 +1095,124 @@ function PortfolioPage(props: {
 
       <div className="grid" style={{ marginTop: "1.25rem" }}>
         <section className="panel">
-          <h2>Uniswap positions</h2>
+          <h2>Watched pool positions</h2>
+          {watchedPools.length > 0 ? (
+            <p className="hint" style={{ marginBottom: "0.75rem" }}>
+              Matching{" "}
+              {watchedPools.map((p, i) => (
+                <span key={p}>
+                  {i > 0 ? ", " : null}
+                  <code>{shortAddr(p)}</code>
+                </span>
+              ))}
+            </p>
+          ) : null}
           {positions.length === 0 ? (
             <p className="empty">
-              No v3 positions found
-              {publicDemo ? " on this public demo endpoint" : " (or RPC/wallet unset)"}
-              .
+              No open LP in watched pools
+              {!wallet ? " (wallet unset)" : ""}.
             </p>
           ) : (
             <ul className="list">
               {positions.map((p) => (
-                <li
+                <PositionRow
                   key={
                     p.nftTokenId ??
                     p.pool ??
                     `${p.token0Address}-${p.liquidity}`
                   }
-                  className="item"
-                >
-                  <div>
-                    {p.protocol}
-                    {p.nftTokenId ? ` NFT #${p.nftTokenId}` : ""}
-                    {p.feeTier != null ? ` · fee ${p.feeTier}` : ""}
-                  </div>
-                  <div className="meta">
-                    {p.pool ? (
-                      <>
-                        pool {shortAddr(p.pool)}
-                        <br />
-                      </>
-                    ) : null}
-                    {p.token0Address
-                      ? `${shortAddr(p.token0Address)} / ${shortAddr(p.token1Address)}`
-                      : null}
-                    {p.liquidity ? (
-                      <>
-                        <br />
-                        liquidity {p.liquidity}
-                      </>
-                    ) : null}
-                    {p.note ? (
-                      <>
-                        <br />
-                        {p.note}
-                      </>
-                    ) : null}
-                  </div>
-                </li>
+                  position={p}
+                />
               ))}
             </ul>
           )}
         </section>
 
         <section className="panel">
-          <h2>Panic queue</h2>
-          {queue.length === 0 ? (
-            <p className="empty">No panic events queued.</p>
+          <h2>Other Uniswap v3 NFTs</h2>
+          {otherPositions.length === 0 ? (
+            <p className="empty">No other open positions.</p>
           ) : (
             <ul className="list">
-              {queue
-                .slice()
-                .reverse()
-                .map((item) => (
-                  <li key={item.event.id} className="item">
-                    <div>
-                      <span className={`sev-${item.event.severity}`}>
-                        {item.event.severity}
-                      </span>{" "}
-                      · {item.status} · {item.event.mode}
-                    </div>
-                    <div className="meta">
-                      {item.event.id}
-                      <br />
-                      {item.event.reasons
-                        .map((r) => `${r.source}: ${r.signal.slice(0, 100)}`)
-                        .join(" · ")}
-                    </div>
-                  </li>
-                ))}
+              {otherPositions.map((p) => (
+                <PositionRow
+                  key={
+                    p.nftTokenId ??
+                    p.pool ??
+                    `${p.token0Address}-${p.liquidity}`
+                  }
+                  position={p}
+                />
+              ))}
             </ul>
           )}
         </section>
       </div>
+
+      <section className="panel" style={{ marginTop: "1.25rem" }}>
+        <h2>Panic queue</h2>
+        {queue.length === 0 ? (
+          <p className="empty">No panic events queued.</p>
+        ) : (
+          <ul className="list">
+            {queue
+              .slice()
+              .reverse()
+              .map((item) => (
+                <li key={item.event.id} className="item">
+                  <div>
+                    <span className={`sev-${item.event.severity}`}>
+                      {item.event.severity}
+                    </span>{" "}
+                    · {item.status} · {item.event.mode}
+                  </div>
+                  <div className="meta">
+                    {item.event.id}
+                    <br />
+                    {item.event.reasons
+                      .map((r) => `${r.source}: ${r.signal.slice(0, 100)}`)
+                      .join(" · ")}
+                  </div>
+                </li>
+              ))}
+          </ul>
+        )}
+      </section>
     </>
+  );
+}
+
+function PositionRow({ position: p }: { position: Position }) {
+  return (
+    <li className="item">
+      <div>
+        {p.protocol}
+        {p.nftTokenId ? ` NFT #${p.nftTokenId}` : ""}
+        {p.feeTier != null ? ` · fee ${p.feeTier}` : ""}
+      </div>
+      <div className="meta">
+        {(p.poolAddress ?? p.pool) ? (
+          <>
+            pool {shortAddr(p.poolAddress ?? p.pool!)}
+            <br />
+          </>
+        ) : null}
+        {p.token0Address
+          ? `${shortAddr(p.token0Address)} / ${shortAddr(p.token1Address)}`
+          : null}
+        {p.liquidity ? (
+          <>
+            <br />
+            liquidity {p.liquidity}
+          </>
+        ) : null}
+        {p.note ? (
+          <>
+            <br />
+            {p.note}
+          </>
+        ) : null}
+      </div>
+    </li>
   );
 }

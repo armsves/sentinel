@@ -1,10 +1,12 @@
 /**
  * Lightweight public demo API for Vercel.
- * Avoids pulling Uniswap/0G/executor into the serverless bundle.
+ * Portfolio reads use RPC + wallet address (no private key).
  */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+  createClients,
+  getConfig,
   isPublicDemoRuntime,
   listActivity,
   loadPolicySettings,
@@ -13,7 +15,10 @@ import {
   useRedisStore,
   type PolicySettings,
 } from "@sentinel/core";
+import { fetchPortfolioTokens } from "@sentinel/graph";
+import { partitionOwnerPositions } from "@sentinel/uniswap";
 import { chatWith0G } from "@sentinel/zg";
+import { formatUnits } from "viem";
 
 if (process.env.VERCEL) {
   process.env.PUBLIC_DEMO ??= "true";
@@ -70,24 +75,80 @@ app.get("/activity", async (c) => {
 app.get("/queue", async (c) => c.json({ items: [] }));
 
 app.get("/positions", async (c) => {
-  const watchedPools = envList("WATCHED_POOLS").map((p) => p.toLowerCase());
-  const wallet = process.env.WALLET_ADDRESS?.trim() || "";
-  const safeWallet = process.env.SAFE_WALLET_ADDRESS?.trim() || null;
-  const susd = process.env.SUSD_ADDRESS?.trim() || "";
-  const usdc = process.env.USDC_ADDRESS?.trim() || "";
-  return c.json({
-    address: wallet,
-    safeWallet,
-    watchedPools,
-    publicDemo: true,
-    positions: watchedPools.map((pool) => ({
-      protocol: "uniswap-v3",
-      pool,
-      token0Address: susd,
-      token1Address: usdc,
-      note: "Watched pool (NFT positions require local API + RPC)",
-    })),
-  });
+  try {
+    const cfg = getConfig();
+    const watchedPools = cfg.watchedPools.length
+      ? cfg.watchedPools
+      : envList("WATCHED_POOLS").map((p) => p.toLowerCase());
+    const safeWallet = cfg.SAFE_WALLET_ADDRESS || null;
+    const { publicClient, address } = createClients();
+    if (!address) {
+      return c.json({
+        address: "",
+        safeWallet,
+        watchedPools,
+        tokens: [],
+        positions: [],
+        watchedPositions: [],
+        otherPositions: [],
+        publicDemo: true,
+      });
+    }
+
+    const portfolioAddrs = [
+      ...(cfg.portfolioTokens.length
+        ? cfg.portfolioTokens
+        : [cfg.USDC_ADDRESS, cfg.USDT_ADDRESS, cfg.DAI_ADDRESS].filter(Boolean)),
+      ...(cfg.SUSD_ADDRESS ? [cfg.SUSD_ADDRESS] : []),
+    ] as `0x${string}`[];
+    const uniquePortfolio = [
+      ...new Set(portfolioAddrs.map((a) => a.toLowerCase())),
+    ] as `0x${string}`[];
+
+    const [tokenRows, partitioned] = await Promise.all([
+      fetchPortfolioTokens({
+        publicClient,
+        owner: address,
+        tokenAddresses: uniquePortfolio,
+      }),
+      partitionOwnerPositions(publicClient, address, watchedPools),
+    ]);
+
+    const tokens = tokenRows.map((t) => ({
+      address: t.address,
+      symbol: t.symbol,
+      name: t.name,
+      decimals: t.decimals,
+      balance: formatUnits(BigInt(t.balanceRaw), t.decimals),
+      balanceRaw: t.balanceRaw,
+    }));
+
+    return c.json({
+      address,
+      safeWallet,
+      watchedPools,
+      tokens,
+      positions: partitioned.watched,
+      watchedPositions: partitioned.watched,
+      otherPositions: partitioned.other,
+      publicDemo: true,
+    });
+  } catch (err) {
+    return c.json(
+      {
+        error: err instanceof Error ? err.message : String(err),
+        address: process.env.WALLET_ADDRESS?.trim() || "",
+        safeWallet: process.env.SAFE_WALLET_ADDRESS?.trim() || null,
+        watchedPools: envList("WATCHED_POOLS"),
+        tokens: [],
+        positions: [],
+        watchedPositions: [],
+        otherPositions: [],
+        publicDemo: true,
+      },
+      500,
+    );
+  }
 });
 
 app.post("/trigger", async (c) => {
@@ -269,8 +330,6 @@ app.post("/actions/swap", async (c) => {
           )
         : null;
 
-    // Uniswap's gasFeeUSD on testnets prices gas as if mainnet ETH —
-    // prefer native units from gasFee (wei). USD only trusted on mainnet.
     let gasFeeWei: string | null = null;
     let gasFeeEth: string | null = null;
     if (quote.gasFee != null && /^\d+$/.test(String(quote.gasFee))) {

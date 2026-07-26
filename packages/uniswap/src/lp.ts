@@ -303,3 +303,118 @@ export async function listOwnerPositions(
   }
   return out;
 }
+
+const V3_POOL_ABI = [
+  {
+    type: "function",
+    name: "token0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "token1",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "fee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint24" }],
+  },
+] as const;
+
+export type V3PoolKey = {
+  pool: `0x${string}`;
+  token0: `0x${string}`;
+  token1: `0x${string}`;
+  fee: number;
+};
+
+export async function readV3PoolKey(
+  publicClient: PublicClient<Transport, Chain>,
+  poolAddress: `0x${string}`,
+): Promise<V3PoolKey> {
+  const [token0, token1, fee] = await Promise.all([
+    publicClient.readContract({
+      address: poolAddress,
+      abi: V3_POOL_ABI,
+      functionName: "token0",
+    }),
+    publicClient.readContract({
+      address: poolAddress,
+      abi: V3_POOL_ABI,
+      functionName: "token1",
+    }),
+    publicClient.readContract({
+      address: poolAddress,
+      abi: V3_POOL_ABI,
+      functionName: "fee",
+    }),
+  ]);
+  return {
+    pool: poolAddress.toLowerCase() as `0x${string}`,
+    token0: token0.toLowerCase() as `0x${string}`,
+    token1: token1.toLowerCase() as `0x${string}`,
+    fee: Number(fee),
+  };
+}
+
+export function positionMatchesPool(
+  pos: PositionSummary,
+  key: V3PoolKey,
+): boolean {
+  const t0 = pos.token0Address.toLowerCase();
+  const t1 = pos.token1Address.toLowerCase();
+  if (t0 !== key.token0 || t1 !== key.token1) return false;
+  if (pos.feeTier != null && pos.feeTier !== key.fee) return false;
+  return true;
+}
+
+/** Split owner NFTs into watched-pool positions vs everything else. */
+export async function partitionOwnerPositions(
+  publicClient: PublicClient<Transport, Chain>,
+  owner: `0x${string}`,
+  watchedPools: string[],
+): Promise<{
+  watched: PositionSummary[];
+  other: PositionSummary[];
+  poolKeys: V3PoolKey[];
+}> {
+  const all = (await listOwnerPositions(publicClient, owner)).filter(
+    (p) => p.liquidity != null && BigInt(p.liquidity) > 0n,
+  );
+  if (!watchedPools.length) {
+    return { watched: [], other: all, poolKeys: [] };
+  }
+
+  const poolKeys: V3PoolKey[] = [];
+  for (const pool of watchedPools) {
+    try {
+      poolKeys.push(
+        await readV3PoolKey(publicClient, pool.toLowerCase() as `0x${string}`),
+      );
+    } catch (err) {
+      logger.warn("failed to read watched pool", {
+        pool,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const watched: PositionSummary[] = [];
+  const other: PositionSummary[] = [];
+  for (const pos of all) {
+    const match = poolKeys.find((k) => positionMatchesPool(pos, k));
+    if (match) {
+      watched.push({ ...pos, poolAddress: match.pool });
+    } else {
+      other.push(pos);
+    }
+  }
+  return { watched, other, poolKeys };
+}

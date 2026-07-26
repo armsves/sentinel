@@ -30,9 +30,10 @@ import {
 import { scoreSignalsWith0G, chatWith0G } from "@sentinel/zg";
 import {
   executeSwap,
-  listOwnerPositions,
+  partitionOwnerPositions,
 } from "@sentinel/uniswap";
-import { parseUnits } from "viem";
+import { fetchPortfolioTokens } from "@sentinel/graph";
+import { parseUnits, formatUnits } from "viem";
 import { timingSafeEqual } from "node:crypto";
 
 const app = new Hono();
@@ -237,22 +238,56 @@ app.get("/api/positions", async (c) => {
         address: "",
         safeWallet,
         watchedPools,
+        tokens: [],
+        positions: [],
+        watchedPositions: [],
+        otherPositions: [],
         publicDemo: true,
-        positions: watchedPools.map((pool) => ({
-          protocol: "uniswap-v3",
-          pool,
-          token0Address: cfg.SUSD_ADDRESS,
-          token1Address: cfg.USDC_ADDRESS,
-          note: "Watched pool (NFT positions require wallet + RPC)",
-        })),
       });
     }
     const { publicClient, address } = createClients();
     if (!address) {
       return c.json({ error: "WALLET_ADDRESS or PRIVATE_KEY required" }, 400);
     }
-    const positions = await listOwnerPositions(publicClient, address);
-    return c.json({ address, safeWallet, watchedPools, positions });
+
+    const portfolioAddrs = [
+      ...(cfg.portfolioTokens.length
+        ? cfg.portfolioTokens
+        : [cfg.USDC_ADDRESS, cfg.USDT_ADDRESS, cfg.DAI_ADDRESS].filter(Boolean)),
+      ...(cfg.SUSD_ADDRESS ? [cfg.SUSD_ADDRESS] : []),
+    ] as `0x${string}`[];
+    const uniquePortfolio = [
+      ...new Set(portfolioAddrs.map((a) => a.toLowerCase())),
+    ] as `0x${string}`[];
+
+    const [tokenRows, partitioned] = await Promise.all([
+      fetchPortfolioTokens({
+        publicClient,
+        owner: address,
+        tokenAddresses: uniquePortfolio,
+      }),
+      partitionOwnerPositions(publicClient, address, watchedPools),
+    ]);
+
+    const tokens = tokenRows.map((t) => ({
+      address: t.address,
+      symbol: t.symbol,
+      name: t.name,
+      decimals: t.decimals,
+      balance: formatUnits(BigInt(t.balanceRaw), t.decimals),
+      balanceRaw: t.balanceRaw,
+    }));
+
+    return c.json({
+      address,
+      safeWallet,
+      watchedPools,
+      tokens,
+      positions: partitioned.watched,
+      watchedPositions: partitioned.watched,
+      otherPositions: partitioned.other,
+      publicDemo: isPublicDemoRuntime(),
+    });
   } catch (err) {
     return c.json(
       { error: err instanceof Error ? err.message : String(err) },
