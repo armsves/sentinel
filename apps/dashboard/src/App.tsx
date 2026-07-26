@@ -417,7 +417,7 @@ export function App() {
         >
           <span className="bot-status-light" aria-hidden="true" />
           <span className="bot-status-label">
-            {health?.bot?.online ? "Bot on" : "Bot off"}
+            {health?.bot?.online ? "Agent on" : "Agent off"}
           </span>
         </div>
         <div className="cylon" aria-hidden="true">
