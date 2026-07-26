@@ -1,110 +1,40 @@
-# FEEDBACK.md — Uniswap API issues (ETHGlobal Lisbon 2026)
+# FEEDBACK.md — Uniswap API issues
 
-Notes from building **Sentinel** against the [Uniswap Developer Platform](https://developers.uniswap.org/docs) Trading API + LP API. Focused on friction we hit; not a full product log.
+Issues hit while integrating [Uniswap Trading API](https://developers.uniswap.org/docs/trading/swapping-api/integration-guide) and [LP API](https://developers.uniswap.org/docs/liquidity/liquidity-provisioning-api/integration-guide) into Sentinel (ETHGlobal Lisbon 2026).
 
-**Surfaces used:** `/quote`, `/swap`, `/check_approval` (trade) · `/lp/create`, `/lp/decrease`, `/lp/check_approval`, `/lp/pool_info` (LP)  
-**Hosts:** `trade-api.gateway.uniswap.org` · `liquidity.api.uniswap.org`  
-**Demo chain:** Ethereum Sepolia (`11155111`) + mainnet-oriented docs defaults
+## Setup / config
 
----
+1. **Two base URLs** — Trade and LP use different hosts (`UNISWAP_TRADE_API_BASE_URL` vs `UNISWAP_LP_API_BASE_URL`). Pointing both at one URL breaks half the calls.
+2. **Extra Trade header** — Trading API needs `x-universal-router-version: 2.0` in addition to `x-api-key`. Missing it fails requests that look correctly keyed.
+3. **Same API key, different products** — One Developer Platform key works for both Trade and LP, but each product still has its own base URL and header rules.
 
-## Issues & friction
+## Quotes / swaps
 
-### 1. `gasFeeUSD` is misleading on Sepolia (and non-mainnet)
+4. **`gasFeeUSD` on Sepolia** — Quotes return `gasFeeUSD` that is not meaningful on testnets. We display `gasFee` as ETH on Sepolia instead of treating USD as truth.
+5. **Non-JSON error bodies** — Failed `/quote` sometimes returns plain text / HTML. Parsers that assume JSON throw; read as text first, then parse.
+6. **Quote expiry** — Planned txs can come back with empty `data`. Treat empty calldata as expired quote and re-quote before send.
+7. **Routing variants** — Responses may be classic Universal Router or UniswapX (`DUTCH_V2` / `DUTCH_V3` / `PRIORITY`). Each needs different Permit2 / signature handling before `/swap`.
+8. **Amount units** — Amounts are smallest units (wei-style strings), not human decimals. Passing `"1"` means 1 base unit, not 1 USDC.
 
-Quote responses still expose `gasFeeUSD`, but on Sepolia the number was not a trustworthy USD gas cost (looked like a mainnet-style estimate / placeholder).
+## LP API
 
-**Impact:** Dashboard dry-run quotes showed bogus “USD gas” until we special-cased non-mainnet and displayed native ETH from `gasFee` (wei) instead.
+9. **`/lp/check_approval` KYC warnings** — Permissioned pools return `kycRequiredWarnings`. Must fail closed or exits blow up later.
+10. **Decrease needs NFT id + pool token addresses** — `/lp/decrease` expects wallet, protocol, chainId, token0/token1, and `liquidityPercentageToDecrease`. Missing any of these fails after you already thought you “had” the position.
+11. **Simulate vs live** — `simulateTransaction: true` is the dry-run path for create/decrease. Easy to forget and attempt a real tx in demo mode.
 
-**Ask:** Document which quote fields are reliable per `chainId`, or omit / null `gasFeeUSD` off mainnet.
+## What we work around in Sentinel
 
-### 2. Two different API hosts + different required headers
+| Gap | Workaround in this repo |
+| --- | --- |
+| No reliable owner position list from API | `listOwnerPositions` via RPC against NPM |
+| No token amounts on positions | `getAmountsForPosition` in `packages/uniswap/src/v3math.ts` |
+| Bad Sepolia `gasFeeUSD` | Show `gasFee` as ETH when `CHAIN_ID !== 1` |
+| Non-JSON error bodies | Read response as text, then `JSON.parse` safely |
+| UniswapX vs UR quotes | Prefer classic routes; handle Permit2 only when present |
 
-Trading and LP live on different base URLs. Trade calls also need `x-universal-router-version: 2.0`; LP calls do not.
+## Open questions for Uniswap
 
-**Impact:** Easy to hit the wrong host or miss the UR header and get opaque 4xx/5xx. Skills docs help, but a single “integration checklist” for both surfaces would cut setup time.
-
-### 3. No first-class “list my positions” for the panic agent
-
-For “what NFTs does this wallet hold / what’s in this pool?”, we could not rely on a simple LP API owner listing that matched our needs.
-
-**Impact:** Fell back to on-chain `NonfungiblePositionManager` (`balanceOf` / `tokenOfOwnerByIndex` / `positions`) via RPC. Fine for MVP, but means the Uniswap API is not the single source of truth for portfolio inventory.
-
-**Ask:** Owner position listing (or signed wallet session → positions) on the LP API would make agent demos cleaner.
-
-### 4. Position token amounts are not returned (only liquidity / ticks)
-
-LP / NPM data gives liquidity + tick range, not human-readable token0/token1 balances.
-
-**Impact:** We reimplemented Uniswap v3 tick math (`sqrtPriceX96` + liquidity → amounts) to show “52 USDC / 53 sUSD” on the Portfolio page.
-
-**Ask:** Optional enriched position payload (`amount0`, `amount1`, symbols, decimals) would save every integrator repeating TickMath.
-
-### 5. Quote / plan expiry and empty `tx.data`
-
-Built swap/LP transactions can come back with empty or stale calldata if the plan expires or the client mishandles the response.
-
-**Impact:** Had to validate `to` / `data` before broadcast and surface “quote may have expired” errors.
-
-**Ask:** Clearer error codes when a quote is expired vs malformed client payload.
-
-### 6. Error bodies are inconsistent (JSON vs non-JSON)
-
-Some failure paths return JSON (`error` / `detail`); others returned non-JSON bodies that broke naive `res.json()` parsers on the public demo API.
-
-**Impact:** Hardened fetch helpers to always read text first, then parse; map status + body into one error string for the UI.
-
-**Ask:** Always JSON error envelope with a stable `code` + `message`.
-
-### 7. Multi-step approval / Permit2 / UniswapX branching
-
-Trade flow: `check_approval` → optional approval tx → `quote` → optional Permit2 sign → `swap`. Routing can be classic UR or UniswapX (`DUTCH_V2` / `DUTCH_V3` / `PRIORITY`) with different signature shapes.
-
-**Impact:** Extra branching for a panic “flight to stables” path that just wants a reliable classic V3 swap under stress.
-
-**Ask:** A documented “agent panic swap” preset (force classic V3, skip UniswapX) would reduce footguns for automated executors.
-
-### 8. LP `check_approval` KYC / allowlist warnings
-
-LP approval responses can include `kycRequiredWarnings` for permissioned pools.
-
-**Impact:** We treat that as a hard stop. Fine, but easy to miss in docs until you hit it.
-
-### 9. Dry-run / simulation story is split
-
-LP create/decrease support `simulateTransaction`; trade dry-run is more “plan but don’t send” on our side. Public Vercel demo cannot hold a hot key, so we only quote / simulate activity for visitors.
-
-**Impact:** Two mental models (API simulate vs client dry-run) for sponsors watching the demo.
-
-**Ask:** Uniform `simulate: true` across trade + LP that returns gas + amounts without requiring a funded signer.
-
-### 10. Sepolia demo LP still needed custom on-chain setup
-
-Creating / seeding our sUSD–USDC v3 pool for the hackathon demo was mostly scripts + NPM on Sepolia, not a one-shot LP API “create demo pool” path.
-
-**Impact:** More time on pool bootstrap than on agent logic.
-
----
-
-## What worked well
-
-- API key from the Developer Platform unlocked both Trading + LP with the same key.
-- `/lp/pool_info` and `/quote` were enough to prove routing + pool metadata quickly.
-- Official AI skills (`swap-integration`, `lp-integration`, `viem-integration`) were a useful map of endpoints and headers.
-- Classic V3 `protocols: ["V3"]` on quote kept panic swaps predictable once we locked that in.
-
----
-
-## Suggested Uniswap improvements (for agents)
-
-1. Null or omit unreliable quote money fields off mainnet (`gasFeeUSD`).
-2. Owner position inventory + enriched amounts on the LP API.
-3. Stable JSON errors with machine-readable codes.
-4. Explicit “classic V3 only / no UniswapX” flag for automated executors.
-5. One shared simulate mode for trade + LP dry-runs.
-
----
-
-## Contact
-
-GitHub: [armsves/sentinel](https://github.com/armsves/sentinel) · X: [x.com/armsves](https://x.com/armsves)
+1. Best API path for **full LP exit + multi-hop to stables** as one coordinated flow?
+2. Recommended way to list all v3 NFT positions for a wallet without NPM RPC?
+3. Is `gasFeeUSD` expected to be valid on Sepolia, or mainnet-only?
+4. Preferred pattern for dry-run in public demos without shipping private keys?
