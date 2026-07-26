@@ -5,7 +5,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+  buildPanicEvent,
   createClients,
+  emitActivity,
+  enqueuePanic,
   getConfig,
   getBotPresence,
   isPublicDemoRuntime,
@@ -17,6 +20,7 @@ import {
   type PolicySettings,
 } from "@sentinel/core";
 import { fetchPortfolioTokens } from "@sentinel/graph";
+import { buildTriggerSignals } from "@sentinel/monitors";
 import { partitionOwnerPositions } from "@sentinel/uniswap";
 import { chatWith0G } from "@sentinel/zg";
 import { formatUnits } from "viem";
@@ -43,7 +47,7 @@ app.get("/health", async (c) => {
     ok: true,
     chainId: Number(process.env.CHAIN_ID ?? 11155111),
     executionMode: policy.executionMode,
-    dryRun: true,
+    dryRun: policy.executionMode !== "live",
     store: useRedisStore() ? "redis" : "file",
     publicDemo: isPublicDemoRuntime() || true,
     watchedPools: watchedPools.length,
@@ -177,13 +181,111 @@ app.post("/trigger", async (c) => {
     body.value ??
     (kind === "depeg"
       ? threshold + 80
-      : threshold + Math.max(5, threshold * 0.25));
+      : threshold + Math.max(5, Math.round(threshold * 0.25)));
+
+  if (body.saveThreshold !== false) {
+    const patch: Partial<PolicySettings> =
+      kind === "stop_loss"
+        ? { priceDropThresholdPct: threshold }
+        : kind === "depeg"
+          ? { depegThresholdBps: threshold }
+          : kind === "tvl_drop"
+            ? { poolTvlDropThresholdPct: threshold }
+            : {};
+    if (Object.keys(patch).length) await savePolicySettings(patch);
+  }
+
+  // Live + Redis: enqueue for the local agent (real txs). Cloud has no private key.
+  if (useRedisStore() && policy.executionMode === "live") {
+    const cfg = getConfig();
+    const signals = buildTriggerSignals({ kind, value, threshold });
+    const positions = cfg.watchedPools.map((pool) => ({
+      chainId: cfg.CHAIN_ID,
+      pool,
+      tokens: [cfg.SUSD_ADDRESS, cfg.USDC_ADDRESS, cfg.USDT_ADDRESS].filter(
+        Boolean,
+      ),
+    }));
+
+    await emitActivity({
+      agent: "demo",
+      phase: "trigger",
+      level: "warn",
+      message: `Live trigger: ${kind} — enqueued for local agent`,
+      data: { kind, value, threshold, mode: "live" },
+    });
+
+    let event = await buildPanicEvent(signals, {
+      positions,
+      zgScore: 0.95,
+      zgRationale: `Live dashboard trigger: ${kind}`,
+      zgShouldPanic: true,
+    });
+    if (!event) {
+      event = {
+        id: `live-${kind}-${Date.now().toString(36)}`,
+        ts: Date.now(),
+        severity: "critical",
+        reasons: signals.map((s) => ({
+          source: s.source,
+          signal: s.message,
+          evidence: { category: s.category, tokens: s.tokens },
+        })),
+        positions,
+        targetStables: policy.safeAssets,
+        mode: "live",
+        zgScore: 0.95,
+        zgRationale: `Live dashboard trigger: ${kind}`,
+      };
+    }
+    event.mode = "live";
+    event.id = `live-${kind}-${Date.now().toString(36)}-${event.id.slice(-8)}`;
+    await enqueuePanic(event, { force: true });
+    await emitActivity({
+      agent: "demo",
+      phase: "enqueue",
+      level: "warn",
+      message: `Panic enqueued ${event.id} (LIVE — local agent will broadcast)`,
+      data: { id: event.id, mode: "live" },
+    });
+
+    return c.json({
+      scenario: kind,
+      label: `${kind} live enqueue`,
+      mode: "live",
+      event: {
+        id: event.id,
+        severity: event.severity,
+        zgScore: event.zgScore,
+        zgRationale: event.zgRationale,
+      },
+      executed: false,
+      queueStatus: "pending",
+      plan: [
+        {
+          step: 1,
+          title: "Enqueue for local agent",
+          detail: "pnpm bot must be running with Agent on",
+          status: "done",
+        },
+        {
+          step: 2,
+          title: "Withdraw + swap + transfer",
+          detail: "Watch Live agent feed for Sepolia explorer links",
+          status: "planned",
+        },
+      ],
+      safeWallet: cfg.SAFE_WALLET_ADDRESS || null,
+      publicDemo: false,
+      store: "redis",
+    });
+  }
 
   const result = await runPublicDryRunDemo({
     kind,
     value,
     threshold,
-    saveThreshold: body.saveThreshold !== false,
+    saveThreshold: false,
   });
   return c.json(result);
 });

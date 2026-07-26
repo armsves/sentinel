@@ -950,6 +950,18 @@ fieldset.checks legend {
   word-break: break-word;
 }
 
+.activity-row .tx-link {
+  display: inline-block;
+  margin-top: 0.25rem;
+  color: var(--accent);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.activity-row .tx-link:hover {
+  text-decoration: underline;
+}
+
 .activity-row.warn {
   border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
 }

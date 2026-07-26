@@ -123,9 +123,56 @@ export function filterSignalsByWatchlist(
   if (!addrs.size && !symbols.size) {
     return opts.keepAllIfEmpty === false ? [] : signals;
   }
-  return signals.filter((s) => {
-    const addrHit = s.addresses.some((a) => addrs.has(a.toLowerCase()));
-    const tokenHit = (s.tokens ?? []).some((t) => symbols.has(t.toUpperCase()));
-    return addrHit || tokenHit;
+  return signals.filter((s) => signalMatchesWatchlist(s, addrs, symbols));
+}
+
+export function signalMatchesWatchlist(
+  signal: NormalizedSignal,
+  addresses: Set<string>,
+  symbols: Set<string>,
+): boolean {
+  if (signal.addresses.some((a) => addresses.has(a.toLowerCase()))) return true;
+  if ((signal.tokens ?? []).some((t) => symbols.has(t.toUpperCase()))) return true;
+
+  const hay = `${signal.message} ${JSON.stringify(signal.raw ?? {})}`.toLowerCase();
+  for (const addr of addresses) {
+    if (addr.length >= 10 && hay.includes(addr.toLowerCase())) return true;
+  }
+  for (const sym of symbols) {
+    if (sym.length < 2) continue;
+    // Word-boundary style match for tickers (sUSD, USDC, PEPE, …)
+    const re = new RegExp(
+      `(^|[^a-z0-9])${sym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`,
+      "i",
+    );
+    if (re.test(hay)) return true;
+  }
+  return false;
+}
+
+/** Elevate severity when a threat hits the wallet exposure set. */
+export function tagPortfolioMatches(
+  signals: NormalizedSignal[],
+  opts: { addresses?: string[]; symbols?: string[] },
+): NormalizedSignal[] {
+  const addrs = new Set(
+    (opts.addresses ?? []).map((a) => a.toLowerCase()).filter(Boolean),
+  );
+  const symbols = new Set(
+    (opts.symbols ?? []).map((s) => s.toUpperCase()).filter(Boolean),
+  );
+  return signals.map((s) => {
+    if (!signalMatchesWatchlist(s, addrs, symbols)) return s;
+    if (s.message.includes("[matches wallet]")) return s;
+    return {
+      ...s,
+      severity:
+        s.severity === "critical"
+          ? s.severity
+          : s.severity === "high"
+            ? "critical"
+            : "high",
+      message: `${s.message} [matches wallet]`,
+    };
   });
 }

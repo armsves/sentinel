@@ -1,4 +1,4 @@
-import { getConfig, logger } from "@sentinel/core";
+import { getConfig, logger, explorerTxUrl } from "@sentinel/core";
 import {
   isAddress,
   type Account,
@@ -107,7 +107,9 @@ export async function sendApiTx(opts: {
       ? { gas: BigInt(opts.tx.gasLimit) }
       : {}),
   });
-  logger.info(`sent ${opts.label}`, { hash });
+  const chainId = getConfig().CHAIN_ID;
+  const explorer = explorerTxUrl(chainId, hash);
+  logger.info(`sent ${opts.label}`, { hash, explorer });
   await opts.publicClient.waitForTransactionReceipt({ hash });
   return { hash, simulated: false };
 }

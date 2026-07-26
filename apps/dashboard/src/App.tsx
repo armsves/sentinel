@@ -827,6 +827,19 @@ function ControlPage(props: {
                   {new Date(ev.ts).toLocaleTimeString()} · {ev.agent}/{ev.phase}
                 </time>
                 <span>{ev.message}</span>
+                {typeof ev.data?.explorer === "string" ? (
+                  <a
+                    className="tx-link"
+                    href={ev.data.explorer}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on explorer
+                    {typeof ev.data.hash === "string"
+                      ? ` · ${String(ev.data.hash).slice(0, 10)}…`
+                      : ""}
+                  </a>
+                ) : null}
               </div>
             ))
           )}

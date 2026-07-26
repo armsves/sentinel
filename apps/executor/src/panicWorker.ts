@@ -3,6 +3,7 @@ import {
   createClients,
   dequeuePending,
   emitActivity,
+  explorerTxUrl,
   getEffectiveConfig,
   isDryRunAsync,
   listQueue,
@@ -18,6 +19,11 @@ import {
 import { erc20Abi } from "viem";
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as const;
+
+function txMeta(chainId: number, hash?: string) {
+  if (!hash) return {};
+  return { hash, explorer: explorerTxUrl(chainId, hash) };
+}
 
 function stableAddress(
   symbol: string,
@@ -117,7 +123,16 @@ async function transferStablesToSafe(opts: {
         phase: "transfer",
         level: "warn",
         message: `Transferred ${stableSym} to safe wallet`,
-        data: { amount: balance.toString(), to: safe, hash },
+        data: {
+          amount: balance.toString(),
+          to: safe,
+          ...txMeta(cfg.CHAIN_ID, hash),
+        },
+      });
+      logger.info("transfer to safe", {
+        stableSym,
+        hash,
+        explorer: explorerTxUrl(cfg.CHAIN_ID, hash),
       });
     } catch (err) {
       await emitActivity({
@@ -196,7 +211,7 @@ async function flightToStables(event: PanicEvent) {
           message: `Withdrawing LP NFT #${pos.nftTokenId}`,
           data: { dryRun },
         });
-        await decreasePosition({
+        const withdrawn = await decreasePosition({
           params: {
             walletAddress: address,
             protocol: pos.protocol,
@@ -213,8 +228,12 @@ async function flightToStables(event: PanicEvent) {
         await emitActivity({
           agent: "executor",
           phase: "withdraw",
-          level: "info",
+          level: "warn",
           message: `LP withdraw ${dryRun ? "simulated" : "sent"} for NFT #${pos.nftTokenId}`,
+          data: {
+            dryRun,
+            ...txMeta(cfg.CHAIN_ID, withdrawn.hash),
+          },
         });
       } catch (err) {
         await emitActivity({
@@ -282,7 +301,7 @@ async function flightToStables(event: PanicEvent) {
             message: `Swapping residual → ${stableSym}`,
             data: { token, amount: balance.toString(), dryRun },
           });
-          await executeSwap({
+          const swappedTx = await executeSwap({
             params: {
               tokenIn: token as `0x${string}`,
               tokenOut: out,
@@ -299,8 +318,11 @@ async function flightToStables(event: PanicEvent) {
             agent: "executor",
             phase: "swap",
             level: "warn",
-            message: `[${dryRun ? "dry_run" : "live"}] swap to ${stableSym} ready`,
-            data: { token },
+            message: `[${dryRun ? "dry_run" : "live"}] swap to ${stableSym} ${dryRun ? "ready" : "sent"}`,
+            data: {
+              token,
+              ...txMeta(cfg.CHAIN_ID, swappedTx.hash),
+            },
           });
           swapped = true;
           break;

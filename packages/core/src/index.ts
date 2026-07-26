@@ -8,3 +8,4 @@ export * from "./activity.js";
 export * from "./redis.js";
 export * from "./publicDemo.js";
 export * from "./botPresence.js";
+export * from "./explorer.js";

@@ -1,12 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { getConfig, logger } from "@sentinel/core";
+import { getConfig, logger, type NormalizedSignal } from "@sentinel/core";
 import { BLOCKAID_VERUS_FIXTURE } from "./fixture.js";
-import {
-  filterSignalsByWatchlist,
-  postsToSignals,
-  type XPost,
-} from "./parse.js";
-import type { NormalizedSignal } from "@sentinel/core";
+import { postsToSignals, type XPost } from "./parse.js";
 
 const userIdCache = new Map<string, string>();
 
@@ -80,6 +75,8 @@ async function loadFixturePosts(): Promise<XPost[]> {
  * Pull recent posts from watched X accounts (default: blockaid_).
  * Prefers X API v2 when X_BEARER_TOKEN is set; otherwise uses the built-in
  * Blockaid exploit/depeg fixture so parsing still works in demos.
+ *
+ * Filtering to wallet pools/tokens happens in the scanner.
  */
 export async function fetchWatchedXPosts(): Promise<XPost[]> {
   const cfg = getConfig();
@@ -105,60 +102,15 @@ export async function fetchWatchedXPosts(): Promise<XPost[]> {
   return all;
 }
 
-function watchlistFromConfig() {
-  const cfg = getConfig();
-  const addresses = [
-    ...cfg.watchedPools,
-    ...cfg.portfolioTokens,
-    ...cfg.peggedTokens,
-    cfg.SUSD_ADDRESS,
-    cfg.USDC_ADDRESS,
-    cfg.USDT_ADDRESS,
-    cfg.DAI_ADDRESS,
-  ].filter(Boolean);
-  const symbols = [
-    "SUSD",
-    "USDC",
-    "USDT",
-    "DAI",
-    ...cfg.safeAssets.map((s) => s.toUpperCase()),
-  ];
-  return { addresses, symbols };
-}
-
 export async function pollXExploitSignals(): Promise<NormalizedSignal[]> {
   const cfg = getConfig();
   const posts = await fetchWatchedXPosts();
-  const raw = postsToSignals(posts);
-  const usingFixture = !cfg.X_BEARER_TOKEN.trim();
-  const { addresses, symbols } = watchlistFromConfig();
-  // Fixture mode: only keep posts that touch watched demo assets (avoid Verus spam).
-  // Live API: keep all security posts; scanner relevanceBoost still elevates matches.
-  const signals = usingFixture
-    ? filterSignalsByWatchlist(raw, {
-        addresses,
-        symbols: ["SUSD", "USDC"],
-        keepAllIfEmpty: false,
-      })
-    : raw;
-
+  const signals = postsToSignals(posts);
   logger.info("x monitor", {
     posts: posts.length,
-    securitySignals: raw.length,
-    afterWatchFilter: signals.length,
-    fixture: usingFixture,
+    securitySignals: signals.length,
+    fixture: !cfg.X_BEARER_TOKEN.trim(),
     accounts: cfg.xWatchAccounts,
   });
-  if (signals.length) {
-    logger.signals(
-      `${signals.length} X threat signal(s)`,
-      signals.map((s) => ({
-        source: s.source,
-        severity: s.severity,
-        category: s.category,
-        message: s.message,
-      })),
-    );
-  }
   return signals;
 }

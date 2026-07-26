@@ -17,16 +17,27 @@ import {
   fetchPortfolioTokens,
   poolHealthToSignals,
 } from "@sentinel/graph";
-import { pollFortaAlerts, pollXExploitSignals } from "@sentinel/monitors";
-import { listOwnerPositions } from "@sentinel/uniswap";
+import {
+  filterSignalsByWatchlist,
+  pollFortaAlerts,
+  pollXExploitSignals,
+  tagPortfolioMatches,
+} from "@sentinel/monitors";
+import { listOwnerPositions, enrichPositionAmounts } from "@sentinel/uniswap";
 import { scoreSignalsWith0G } from "@sentinel/zg";
 import { formatUnits } from "viem";
 
-async function scanGraph(): Promise<{
-  signals: NormalizedSignal[];
-  heldSymbols: Set<string>;
+type WalletExposure = {
+  /** Pool + token contract addresses the wallet cares about */
+  addresses: string[];
+  /** Token symbols held / in LP / watched */
+  symbols: string[];
+  /** NFT LP + watched pool rows for panic exit */
   positions: PanicEvent["positions"];
-}> {
+  heldSymbols: Set<string>;
+};
+
+async function loadWalletExposure(): Promise<WalletExposure> {
   const cfg = getConfig();
   const { publicClient, address } = createClients();
   if (!address) {
@@ -59,33 +70,135 @@ async function scanGraph(): Promise<{
     });
   }
 
-  const held = portfolio
-    .filter((t) => BigInt(t.balanceRaw) > 0n)
-    .map((t) => t.address);
-  const tokenUniverse = held.length ? held : uniquePortfolio;
-  const heldSymbols = new Set(
-    portfolio
-      .filter((t) => BigInt(t.balanceRaw) > 0n)
-      .map((t) => t.symbol.toUpperCase()),
+  const heldTokens = portfolio.filter((t) => BigInt(t.balanceRaw) > 0n);
+  const heldSymbols = new Set(heldTokens.map((t) => t.symbol.toUpperCase()));
+
+  const ownerPositions = await listOwnerPositions(publicClient, address).catch(
+    (err: unknown) => {
+      logger.warn("position list failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [] as Awaited<ReturnType<typeof listOwnerPositions>>;
+    },
   );
+  const enrichedPositions = await Promise.all(
+    ownerPositions
+      .filter((p) => p.liquidity != null && BigInt(p.liquidity) > 0n)
+      .map((p) => enrichPositionAmounts(publicClient, p)),
+  );
+  const watchedNft = new Set(cfg.watchedPositionIds);
+  const tracked =
+    watchedNft.size > 0
+      ? enrichedPositions.filter(
+          (p) => p.nftTokenId && watchedNft.has(p.nftTokenId),
+        )
+      : enrichedPositions;
+
+  const positions: PanicEvent["positions"] = tracked.map((p) => ({
+    chainId: cfg.CHAIN_ID,
+    pool: p.poolAddress,
+    positionId: p.nftTokenId,
+    tokens: [p.token0Address, p.token1Address],
+  }));
+
+  for (const poolId of cfg.watchedPools) {
+    if (positions.some((pos) => pos.pool?.toLowerCase() === poolId.toLowerCase())) {
+      continue;
+    }
+    positions.push({
+      chainId: cfg.CHAIN_ID,
+      pool: poolId,
+      tokens: uniquePortfolio.slice(0, 2),
+    });
+  }
+
+  const addressSet = new Set<string>();
+  const symbolSet = new Set<string>(heldSymbols);
+
+  for (const a of [
+    ...cfg.watchedPools,
+    ...heldTokens.map((t) => t.address),
+    ...cfg.portfolioTokens,
+    cfg.SUSD_ADDRESS,
+    ...cfg.peggedTokens,
+  ]) {
+    if (a) addressSet.add(a.toLowerCase());
+  }
+
+  for (const pos of tracked) {
+    if (pos.poolAddress) addressSet.add(pos.poolAddress.toLowerCase());
+    if (pos.token0Address) addressSet.add(pos.token0Address.toLowerCase());
+    if (pos.token1Address) addressSet.add(pos.token1Address.toLowerCase());
+    if (pos.token0Symbol) symbolSet.add(pos.token0Symbol.toUpperCase());
+    if (pos.token1Symbol) symbolSet.add(pos.token1Symbol.toUpperCase());
+  }
+
+  for (const poolId of cfg.watchedPools) {
+    addressSet.add(poolId.toLowerCase());
+  }
+
+  // Include configured pegged / portfolio symbols even at zero balance so
+  // threats against demo assets (sUSD) still match before the first mint.
+  for (const t of portfolio) {
+    symbolSet.add(t.symbol.toUpperCase());
+  }
+  if (cfg.SUSD_ADDRESS) symbolSet.add("SUSD");
+
+  logger.info("wallet exposure", {
+    pools: [...addressSet].filter((a) =>
+      cfg.watchedPools.some((p) => p.toLowerCase() === a) ||
+      tracked.some((t) => t.poolAddress?.toLowerCase() === a),
+    ).length,
+    tokens: heldTokens.map((t) => t.symbol),
+    symbols: [...symbolSet],
+    nfts: positions.map((p) => p.positionId).filter(Boolean),
+  });
+
+  return {
+    addresses: [...addressSet],
+    symbols: [...symbolSet],
+    positions,
+    heldSymbols,
+  };
+}
+
+async function scanGraphPools(
+  exposure: WalletExposure,
+): Promise<NormalizedSignal[]> {
+  const cfg = getConfig();
+  const positionPools = exposure.positions
+    .map((p) => p.pool)
+    .filter((p): p is string => Boolean(p));
+  const poolIds = [
+    ...new Set(
+      [...cfg.watchedPools, ...positionPools].map((p) => p.toLowerCase()),
+    ),
+  ];
 
   let pools =
-    cfg.watchedPools.length > 0
-      ? await fetchPoolHealthByIds(cfg.watchedPools)
-      : await fetchPoolsForPortfolioTokens(tokenUniverse);
+    poolIds.length > 0
+      ? await fetchPoolHealthByIds(poolIds)
+      : await fetchPoolsForPortfolioTokens(
+          exposure.addresses.filter((a) => a.startsWith("0x")),
+        );
 
-  if (cfg.watchedPools.length && held.length) {
-    const byToken = await fetchPoolsForPortfolioTokens(tokenUniverse);
-    const seen = new Set(pools.map((p) => p.poolAddress));
-    for (const p of byToken) {
-      if (!seen.has(p.poolAddress)) pools.push(p);
+  // Attach token metadata onto watched-only position stubs when subgraph has the pool.
+  for (const pos of exposure.positions) {
+    if (!pos.pool || (pos.tokens?.length ?? 0) >= 2) continue;
+    const health = pools.find(
+      (p) => p.poolAddress.toLowerCase() === pos.pool!.toLowerCase(),
+    );
+    if (health) {
+      pos.tokens = [health.token0.address, health.token1.address];
     }
   }
 
   logger.info("pool health", {
     count: pools.length,
     unhealthy: pools.filter((p) => !p.healthy).length,
+    scopedTo: poolIds.length ? "wallet pools only" : "portfolio-token pools",
   });
+
   const unhealthy = pools.filter((p) => !p.healthy);
   if (unhealthy.length) {
     logger.signals(
@@ -112,111 +225,73 @@ async function scanGraph(): Promise<{
     }
   }
 
-  const ownerPositions = await listOwnerPositions(publicClient, address).catch(
-    (err: unknown) => {
-      logger.warn("position list failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return [] as Awaited<ReturnType<typeof listOwnerPositions>>;
-    },
-  );
-  const watchedNft = new Set(cfg.watchedPositionIds);
-  const tracked =
-    watchedNft.size > 0
-      ? ownerPositions.filter(
-          (p) => p.nftTokenId && watchedNft.has(p.nftTokenId),
-        )
-      : ownerPositions;
-
-  const positions: PanicEvent["positions"] = tracked.map((p) => ({
-    chainId: cfg.CHAIN_ID,
-    pool: p.poolAddress,
-    positionId: p.nftTokenId,
-    tokens: [p.token0Address, p.token1Address],
-  }));
-
-  // Also attach watched pools even without an NFT (token trackers)
-  for (const poolId of cfg.watchedPools) {
-    if (positions.some((pos) => pos.pool?.toLowerCase() === poolId.toLowerCase())) {
-      continue;
-    }
-    const health = pools.find(
-      (pool) => pool.poolAddress.toLowerCase() === poolId.toLowerCase(),
-    );
-    positions.push({
-      chainId: cfg.CHAIN_ID,
-      pool: poolId,
-      tokens: health
-        ? [health.token0.address, health.token1.address]
-        : uniquePortfolio.slice(0, 2),
-    });
-  }
-
-  logger.info("tracked positions", {
-    count: positions.length,
-    nfts: positions.map((p) => p.positionId).filter(Boolean),
+  // Graph signals already scoped to wallet pools — tag them as matches.
+  return tagPortfolioMatches(poolHealthToSignals(pools), {
+    addresses: exposure.addresses,
+    symbols: exposure.symbols,
   });
-
-  return {
-    signals: poolHealthToSignals(pools),
-    heldSymbols,
-    positions,
-  };
 }
 
-function relevanceBoost(
+function filterThreatsToWallet(
   signals: NormalizedSignal[],
-  heldSymbols: Set<string>,
-  watchedPools: string[],
-  watchedAddresses: string[],
+  exposure: WalletExposure,
+  label: string,
 ): NormalizedSignal[] {
-  const watched = new Set([
-    ...watchedPools.map((p) => p.toLowerCase()),
-    ...watchedAddresses.map((a) => a.toLowerCase()),
-  ]);
-  return signals.map((s) => {
-    const tokenHit = (s.tokens ?? []).some((t) =>
-      heldSymbols.has(t.toUpperCase()),
-    );
-    const addrHit = s.addresses.some((a) => watched.has(a.toLowerCase()));
-    if (!tokenHit && !addrHit) return s;
-    return {
-      ...s,
-      severity:
-        s.severity === "critical"
-          ? s.severity
-          : s.severity === "high"
-            ? "critical"
-            : "high",
-      message: `${s.message} [matches portfolio/watched]`,
-    };
+  const matched = filterSignalsByWatchlist(signals, {
+    addresses: exposure.addresses,
+    symbols: exposure.symbols,
+    keepAllIfEmpty: false,
   });
+  const tagged = tagPortfolioMatches(matched, {
+    addresses: exposure.addresses,
+    symbols: exposure.symbols,
+  });
+  if (signals.length && matched.length !== signals.length) {
+    logger.info(`${label} filtered to wallet exposure`, {
+      before: signals.length,
+      after: matched.length,
+      dropped: signals.length - matched.length,
+    });
+  }
+  if (tagged.length) {
+    logger.signals(
+      `${tagged.length} ${label} threat(s) matching wallet`,
+      tagged.map((s) => ({
+        source: s.source,
+        severity: s.severity,
+        category: s.category,
+        message: s.message,
+      })),
+    );
+  }
+  return tagged;
 }
 
 async function scanOnce(): Promise<{
   signals: NormalizedSignal[];
   positions: PanicEvent["positions"];
 }> {
-  const cfg = getConfig();
   const policy = await loadPolicySettings();
-  const graphPart = policy.sources.graph
-    ? await scanGraph().catch((err) => {
+  const exposure = await loadWalletExposure().catch((err) => {
+    logger.error("wallet exposure failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
+  if (!exposure) {
+    return { signals: [], positions: [] };
+  }
+
+  const graphSignals = policy.sources.graph
+    ? await scanGraphPools(exposure).catch((err) => {
         logger.error("graph scan failed", {
           error: err instanceof Error ? err.message : String(err),
         });
-        return {
-          signals: [] as NormalizedSignal[],
-          heldSymbols: new Set<string>(),
-          positions: [] as PanicEvent["positions"],
-        };
+        return [] as NormalizedSignal[];
       })
-    : {
-        signals: [] as NormalizedSignal[],
-        heldSymbols: new Set<string>(),
-        positions: [] as PanicEvent["positions"],
-      };
+    : [];
 
-  const xSignals = policy.sources.x
+  const xRaw = policy.sources.x
     ? await pollXExploitSignals().catch((err) => {
         logger.error("x scan failed", {
           error: err instanceof Error ? err.message : String(err),
@@ -224,25 +299,14 @@ async function scanOnce(): Promise<{
         return [] as NormalizedSignal[];
       })
     : [];
+  const xSignals = filterThreatsToWallet(xRaw, exposure, "x");
 
-  const fortaSignals = policy.sources.forta ? await pollFortaAlerts() : [];
-
-  const watchAddrs = [
-    ...cfg.portfolioTokens,
-    cfg.SUSD_ADDRESS,
-    cfg.USDC_ADDRESS,
-  ].filter(Boolean);
-
-  const boostedX = relevanceBoost(
-    xSignals,
-    graphPart.heldSymbols,
-    cfg.watchedPools,
-    watchAddrs,
-  );
+  const fortaRaw = policy.sources.forta ? await pollFortaAlerts() : [];
+  const fortaSignals = filterThreatsToWallet(fortaRaw, exposure, "forta");
 
   return {
-    signals: [...graphPart.signals, ...boostedX, ...fortaSignals],
-    positions: graphPart.positions,
+    signals: [...graphSignals, ...xSignals, ...fortaSignals],
+    positions: exposure.positions,
   };
 }
 
@@ -316,7 +380,7 @@ export async function runScanner() {
       }, {});
       if (signals.length) {
         logger.signals(
-          `${signals.length} active signal(s)`,
+          `${signals.length} wallet-matched signal(s)`,
           signals.map((s) => ({
             source: s.source,
             severity: s.severity,
@@ -329,12 +393,12 @@ export async function runScanner() {
           agent: "scanner",
           phase: "detect",
           level: "warn",
-          message: `${signals.length} active signal(s)`,
+          message: `${signals.length} wallet-matched signal(s)`,
           data: { bySource },
         });
         await maybeEnqueuePanic(signals, positions);
       } else {
-        logger.info("no active signals");
+        logger.info("no wallet-matched signals");
       }
     } catch (err) {
       logger.error("scan failed", {

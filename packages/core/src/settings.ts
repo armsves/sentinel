@@ -134,7 +134,7 @@ export async function savePolicySettings(
   const next = mergePolicy(current, patch);
   if (!next.safeAssets.length) next.safeAssets = ["USDC"];
 
-  // Public Vercel demos stay dry_run unless explicitly unlocked
+  // Public Vercel demos stay dry_run unless explicitly unlocked for live agent demos
   if (
     (process.env.VERCEL || process.env.PUBLIC_DEMO === "true") &&
     process.env.ALLOW_PUBLIC_LIVE !== "true"
