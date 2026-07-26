@@ -1215,7 +1215,7 @@ function PositionRow({ position: p }: { position: Position }) {
         : null;
   const amounts =
     p.amount0 != null && p.amount1 != null
-      ? `${formatAmt(p.amount0)} ${p.token0Symbol ?? "token0"} + ${formatAmt(p.amount1)} ${p.token1Symbol ?? "token1"}`
+      ? `${formatAmt(p.amount0)} ${p.token0Symbol ?? "token0"} / ${formatAmt(p.amount1)} ${p.token1Symbol ?? "token1"}`
       : null;
   const fee = formatFee(p.feeTier);
 
