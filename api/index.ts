@@ -160,6 +160,119 @@ app.post("/chat", async (c) => {
   }
 });
 
+function parseTokenAmount(amount: string, decimals: number): string {
+  const cleaned = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(cleaned)) {
+    throw new Error("amount must be a positive decimal number");
+  }
+  const [whole, frac = ""] = cleaned.split(".");
+  const padded = `${frac}${"0".repeat(decimals)}`.slice(0, decimals);
+  const raw = `${whole}${padded}`.replace(/^0+(?=\d)/, "") || "0";
+  return raw;
+}
+
+app.post("/actions/swap", async (c) => {
+  type SwapBody = {
+    tokenIn?: string;
+    tokenOut?: string;
+    amount?: string;
+    decimals?: number;
+  };
+  const body = await c.req.json<SwapBody>().catch((): SwapBody => ({}));
+  const tokenIn = body.tokenIn?.trim();
+  const tokenOut = body.tokenOut?.trim();
+  const amount = body.amount?.trim();
+  const decimals = body.decimals ?? 18;
+  if (!tokenIn || !tokenOut || !amount) {
+    return c.json({ error: "tokenIn, tokenOut, and amount are required" }, 400);
+  }
+
+  const apiKey = process.env.UNISWAP_API_KEY?.trim();
+  if (!apiKey) {
+    return c.json({ error: "UNISWAP_API_KEY is not configured" }, 500);
+  }
+
+  const chainId = Number(process.env.CHAIN_ID ?? 11155111);
+  const swapper =
+    process.env.WALLET_ADDRESS?.trim() ||
+    "0x0000000000000000000000000000000000000001";
+  const base = (
+    process.env.UNISWAP_TRADE_API_BASE_URL ||
+    process.env.UNISWAP_API_BASE_URL ||
+    "https://trade-api.gateway.uniswap.org/v1"
+  ).replace(/\/$/, "");
+
+  try {
+    const rawAmount = parseTokenAmount(amount, decimals);
+    const res = await fetch(`${base}/quote`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "x-api-key": apiKey,
+        "x-universal-router-version": "2.0",
+      },
+      body: JSON.stringify({
+        tokenIn,
+        tokenOut,
+        tokenInChainId: String(chainId),
+        tokenOutChainId: String(chainId),
+        amount: rawAmount,
+        type: "EXACT_INPUT",
+        swapper,
+        slippageTolerance: 1,
+        routingPreference: "BEST_PRICE",
+        protocols: ["V3"],
+      }),
+    });
+    const text = await res.text();
+    let json: {
+      routing?: string;
+      requestId?: string;
+      quote?: Record<string, unknown>;
+      error?: unknown;
+      detail?: unknown;
+    } = {};
+    try {
+      json = text ? (JSON.parse(text) as typeof json) : {};
+    } catch {
+      return c.json(
+        { error: `Uniswap quote returned non-JSON (${res.status})` },
+        502,
+      );
+    }
+    if (!res.ok) {
+      return c.json(
+        {
+          error: `Uniswap quote failed (${res.status}): ${JSON.stringify(json.error ?? json.detail ?? json)}`,
+        },
+        502,
+      );
+    }
+    return c.json({
+      mode: "dry_run",
+      routing: json.routing ?? "unknown",
+      requestId: json.requestId ?? null,
+      simulated: true,
+      publicDemo: true,
+      tokenIn,
+      tokenOut,
+      amount,
+      chainId,
+    });
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+app.notFound((c) => c.json({ error: `not found: ${c.req.path}` }, 404));
+app.onError((err, c) =>
+  c.json({ error: err instanceof Error ? err.message : String(err) }, 500),
+);
+
 /** Vercel Web Handler (Fluid): must export fetch, not Node (req,res). */
 export default {
   async fetch(request: Request): Promise<Response> {

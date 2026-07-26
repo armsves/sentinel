@@ -117,8 +117,18 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? res.statusText);
+  const text = await res.text();
+  let json: { error?: string } = {};
+  if (text) {
+    try {
+      json = JSON.parse(text) as { error?: string };
+    } catch {
+      throw new Error(
+        text.slice(0, 180).trim() || `${res.status} ${res.statusText}`,
+      );
+    }
+  }
+  if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`);
   return json as T;
 }
 
@@ -156,8 +166,9 @@ export function App() {
     Array<{ role: "user" | "assistant"; content: string }>
   >([]);
   const [swap, setSwap] = useState({
-    tokenIn: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-    tokenOut: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    // Sepolia defaults (public demo chain)
+    tokenIn: "0xfff9976782d46CC05630D1f6eBAb18b2324d6B14",
+    tokenOut: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     amount: "0.01",
     decimals: "18",
   });
@@ -1148,6 +1159,10 @@ function ConfigPage(props: {
 
       <section className="panel" style={{ marginTop: "1.5rem" }}>
         <h2>Dry-run swap</h2>
+        <p className="empty" style={{ marginBottom: "0.75rem" }}>
+          Quotes via Uniswap Trading API (no broadcast on public demo).
+          Defaults are Sepolia WETH → USDC.
+        </p>
         <form className="form" onSubmit={(e) => void runSwap(e)}>
           <input
             value={swap.tokenIn}
