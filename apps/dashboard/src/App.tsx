@@ -501,66 +501,71 @@ function HomePage({
         </div>
       </section>
 
-      <section className="pitch-cards" aria-label="Problem, solution, how it works">
-        <article className="pitch-card">
-          <h2>Problem</h2>
-          <p className="pitch-card-lead">
-            Humans cannot watch liquidity 24/7
-          </p>
-          <p className="prose">
-            Exploits, depegs, and pool drains move in seconds. By the time a
-            Telegram alert is read, LP is already underwater.
-          </p>
-          <ul className="pitch-points">
-            <li>Threat intel arrives after damage starts</li>
-            <li>Stop-loss / peg / TVL need instant reaction</li>
-            <li>Manual exits fail under stress</li>
-          </ul>
-        </article>
-
-        <article className="pitch-card">
-          <h2>Solution</h2>
-          <p className="pitch-card-lead">
-            An always-on flight-to-safety agent
-          </p>
-          <p className="prose">
-            Sentinel watches Uniswap positions and threat feeds, then exits to
-            stables and a safe wallet when thresholds trip.
-          </p>
-          <ul className="pitch-points">
-            <li>Policy you set: stop-loss, depeg, TVL</li>
-            <li>Multi-source confirm before live exits</li>
-            <li>Dry-run demo; live with local keys</li>
-          </ul>
-        </article>
-
-        <article className="pitch-card">
-          <h2>How it works</h2>
-          <p className="pitch-card-lead">Watch → score → exit</p>
-          <ol className="pitch-steps">
-            <li>
-              <strong>Watch</strong>
-              <span>Graph, Blockaid/X, Glider, Forta</span>
-            </li>
-            <li>
-              <strong>Score</strong>
-              <span>0G ranks severity and whether to panic</span>
-            </li>
-            <li>
-              <strong>Exit</strong>
-              <span>Withdraw LP → stables → safe wallet</span>
-            </li>
-          </ol>
-        </article>
+      <section className="pitch-slide">
+        <p className="pitch-index">01 · Problem</p>
+        <h2>Humans cannot watch liquidity 24/7</h2>
+        <p className="prose">
+          Exploits, stablecoin depegs, and pool drains move in seconds. By the
+          time a Telegram alert is read, LP is already underwater — and clicking
+          through a wallet UI is too slow.
+        </p>
+        <ul className="pitch-points">
+          <li>Threat intel arrives after the damage starts</li>
+          <li>Stop-loss / peg / TVL breaches need instant reaction</li>
+          <li>Manual exits fail under stress and time pressure</li>
+        </ul>
       </section>
 
-      <section className="pitch-execute">
-        <h2>Execution</h2>
+      <section className="pitch-slide">
+        <p className="pitch-index">02 · Solution</p>
+        <h2>An always-on flight-to-safety agent</h2>
         <p className="prose">
-          Fire a stop-loss, depeg, or exploit simulation and watch every step in
-          the live agent feed.
+          Sentinel watches your Uniswap positions and fused threat feeds. When
+          policy thresholds trip, it withdraws LP, swaps into stables, and
+          transfers to a safe wallet — no human in the loop.
         </p>
-        <div className="hero-cta pitch-execute-cta">
+        <ul className="pitch-points">
+          <li>Policy you set: stop-loss, depeg, TVL, severity</li>
+          <li>Multi-source confirm before live exits</li>
+          <li>Dry-run demo now; live execution with your keys locally</li>
+        </ul>
+      </section>
+
+      <section className="pitch-slide">
+        <p className="pitch-index">03 · How it works</p>
+        <h2>Watch → score → exit</h2>
+        <ol className="pitch-steps">
+          <li>
+            <strong>Watch</strong>
+            <span>
+              The Graph pool health, Blockaid/X, Glider webhooks, optional Forta
+            </span>
+          </li>
+          <li>
+            <strong>Score</strong>
+            <span>0G Compute ranks severity and whether to panic</span>
+          </li>
+          <li>
+            <strong>Exit</strong>
+            <span>
+              Withdraw LP → swap to USDC/USDT/DAI → transfer to safe wallet
+            </span>
+          </li>
+        </ol>
+        <p className="prose pitch-stack">
+          Built on Uniswap Trading + LP APIs, The Graph, 0G Compute, Hexens
+          Glider, and Blockaid/X.
+        </p>
+      </section>
+
+      <section className="pitch-slide pitch-close">
+        <p className="pitch-index">04 · Demo</p>
+        <h2>Fire an incident on stage</h2>
+        <p className="prose">
+          Trigger a stop-loss, depeg, or exploit simulation and watch every
+          step stream in the live agent feed.
+        </p>
+        <div className="hero-cta">
           <button type="button" className="primary" onClick={onOpenControl}>
             Simulate an incident
           </button>
