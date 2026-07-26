@@ -737,4 +737,30 @@ fieldset.checks legend {
   border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
 }
 
+.sentinel-toast {
+  font-family: var(--font-mono) !important;
+  font-size: 0.82rem !important;
+  background: var(--bg-elev) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+}
+
+.Toastify__toast--success {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line)) !important;
+}
+
+.Toastify__toast--error {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line)) !important;
+}
+
+.Toastify__progress-bar--success {
+  background: var(--ok) !important;
+}
+
+.Toastify__progress-bar--error {
+  background: var(--danger) !important;
+}
+
 

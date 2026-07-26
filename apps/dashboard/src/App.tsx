@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { toast } from "react-toastify";
 
 type Page = "home" | "control" | "config" | "portfolio";
 
@@ -147,7 +148,6 @@ export function App() {
   const [safeWallet, setSafeWallet] = useState<string | null>(null);
   const [policy, setPolicy] = useState<PolicySettings | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [demoScenario, setDemoScenario] = useState<"depeg" | "exploit" | "both">(
     "depeg",
   );
@@ -194,7 +194,7 @@ export function App() {
       setDepegBps(s.policy.depegThresholdBps);
       setTvlDropPct(s.policy.poolTvlDropThresholdPct);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -255,10 +255,10 @@ export function App() {
         body: JSON.stringify(policy),
       });
       setPolicy(res.policy);
-      setMessage("Settings saved. Scanner/executor will use them on next tick.");
+      toast.success("Policy saved — agents will pick it up on the next tick.");
       await refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -276,22 +276,21 @@ export function App() {
 
   async function runPresentationDemo(execute: boolean) {
     setBusy(true);
-    setMessage("");
     try {
       const res = await api<DemoRunResult>("/api/demo/run", {
         method: "POST",
         body: JSON.stringify({ scenario: demoScenario, execute }),
       });
       setDemoResult(res);
-      setMessage(
+      toast.success(
         execute
-          ? `Demo ${res.queueStatus ?? "done"} · ${res.event.id} · mode=${res.mode}`
+          ? `Demo ${res.queueStatus ?? "done"} · ${res.event.id}`
           : `Incident queued ${res.event.id}`,
       );
       await refresh();
       await refreshActivity();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -301,7 +300,6 @@ export function App() {
     kind: "stop_loss" | "depeg" | "tvl_drop" | "exploit",
   ) {
     setBusy(true);
-    setMessage("");
     try {
       const payload =
         kind === "stop_loss"
@@ -335,11 +333,11 @@ export function App() {
         body: JSON.stringify(payload),
       });
       setDemoResult(res);
-      setMessage(`Triggered ${kind} → ${res.queueStatus ?? "done"} · ${res.event.id}`);
+      toast.success(`Triggered ${kind} → ${res.queueStatus ?? "done"}`);
       await refresh();
       await refreshActivity();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -379,6 +377,7 @@ export function App() {
           content: `Error: ${err instanceof Error ? err.message : String(err)}`,
         },
       ]);
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -393,6 +392,11 @@ export function App() {
         routing: string;
         simulated: boolean;
         hash?: string;
+        amountIn?: string;
+        amountOut?: string | null;
+        gasFeeUSD?: string | number | null;
+        route?: string | null;
+        requestId?: string | null;
       }>("/api/actions/swap", {
         method: "POST",
         body: JSON.stringify({
@@ -402,9 +406,14 @@ export function App() {
           decimals: Number(swap.decimals),
         }),
       });
-      setMessage(JSON.stringify(res, null, 2));
+      const out = res.amountOut ? ` → ${res.amountOut} out` : "";
+      const gas =
+        res.gasFeeUSD != null ? ` · gas ~$${Number(res.gasFeeUSD).toFixed(2)}` : "";
+      toast.success(
+        `Dry-run quote ${res.routing}${out}${gas}${res.hash ? ` · ${res.hash}` : ""}`,
+      );
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -437,8 +446,6 @@ export function App() {
           <span className="cylon-eye" />
         </div>
       </header>
-
-      {message && page !== "home" ? <pre className="msg">{message}</pre> : null}
 
       {page === "home" ? (
         <HomePage

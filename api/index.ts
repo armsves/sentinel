@@ -248,6 +248,26 @@ app.post("/actions/swap", async (c) => {
         502,
       );
     }
+
+    const quote = (json.quote ?? {}) as {
+      input?: { amount?: string; token?: string };
+      output?: { amount?: string; token?: string; minimumAmount?: string };
+      gasFeeUSD?: string | number;
+      gasUseEstimate?: string | number;
+      routeString?: string;
+      priceImpact?: number | string;
+      slippage?: number | string;
+    };
+    const outRaw = quote.output?.amount;
+    const usdc = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238".toLowerCase();
+    const outDecimals = tokenOut.toLowerCase() === usdc ? 6 : 18;
+    const outHuman =
+      outRaw != null
+        ? (Number(outRaw) / 10 ** outDecimals).toFixed(
+            Math.min(8, outDecimals),
+          )
+        : null;
+
     return c.json({
       mode: "dry_run",
       routing: json.routing ?? "unknown",
@@ -256,7 +276,14 @@ app.post("/actions/swap", async (c) => {
       publicDemo: true,
       tokenIn,
       tokenOut,
-      amount,
+      amountIn: amount,
+      amountOut: outHuman,
+      amountOutRaw: outRaw ?? null,
+      minimumAmountOut: quote.output?.minimumAmount ?? null,
+      gasFeeUSD: quote.gasFeeUSD ?? null,
+      gasUseEstimate: quote.gasUseEstimate ?? null,
+      route: quote.routeString ?? null,
+      priceImpact: quote.priceImpact ?? null,
       chainId,
     });
   } catch (err) {
