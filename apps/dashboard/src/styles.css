@@ -231,9 +231,14 @@ input {
 
 .portfolio-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.portfolio-head h1 {
+  margin-bottom: 0;
 }
 
 .page-head-copy {
