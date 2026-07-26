@@ -507,7 +507,7 @@ function HomePage({
         <p className="prose">
           Sentinel watches your Uniswap positions and fused threat feeds. When
           policy thresholds trip, it withdraws LP, swaps into stables, and
-          transfers to a safe wallet — no human in the loop.
+          transfers to a safe wallet with no human in the loop.
         </p>
       </section>
 
