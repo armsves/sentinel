@@ -385,6 +385,13 @@ export function App() {
           onClick={() => setPage("home")}
           aria-label="Sentinel home"
         >
+          <img
+            src="/sentinel-logo.png"
+            alt=""
+            className="brand-logo"
+            width={28}
+            height={28}
+          />
           SENTINEL
         </button>
         <nav className="nav" aria-label="Main">

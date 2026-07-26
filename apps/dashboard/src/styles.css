@@ -161,11 +161,26 @@ input {
   background: transparent;
   color: var(--accent);
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.brand-logo {
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
 }
 
 .brand-mark:hover {
   color: var(--text);
   border: none;
+}
+
+.brand-mark:hover .brand-logo {
+  opacity: 0.9;
 }
 
 .nav {
