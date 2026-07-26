@@ -1,120 +1,110 @@
-# FEEDBACK.md — ETHGlobal Lisbon 2026
+# FEEDBACK.md — Uniswap API issues (ETHGlobal Lisbon 2026)
 
-Living notes for mentors, sponsors, and judges. Update during the hackathon as integrations land.
+Notes from building **Sentinel** against the [Uniswap Developer Platform](https://developers.uniswap.org/docs) Trading API + LP API. Focused on friction we hit; not a full product log.
 
-## Project one-liner
+**Surfaces used:** `/quote`, `/swap`, `/check_approval` (trade) · `/lp/create`, `/lp/decrease`, `/lp/check_approval`, `/lp/pool_info` (LP)  
+**Hosts:** `trade-api.gateway.uniswap.org` · `liquidity.api.uniswap.org`  
+**Demo chain:** Ethereum Sepolia (`11155111`) + mainnet-oriented docs defaults
 
-Sentinel = always-on DeFi panic button: detect exploit / depeg / crash signals → exit Uniswap LP → flight to USDC/USDT/DAI → transfer to safe wallet.
+---
 
-## Sponsor checklist
+## Issues & friction
 
-### Uniswap
+### 1. `gasFeeUSD` is misleading on Sepolia (and non-mainnet)
 
-- [x] Valid API key from [Uniswap Developer Platform](https://developers.uniswap.org/docs) (in `.env`)
-- [x] Skills installed: `swap-integration`, `lp-integration`, `viem-integration`
-- [x] Core functionality via Uniswap API: Trading API swap + LP API create/decrease + pool_info + on-chain positions
-- [x] Demo path: `pnpm panic:simulate` → queue → `pnpm panic-worker` dry-runs withdraw / swap / transfer-to-safe
-- [ ] Optional stretch: tokenized stocks as watched risk assets (new Uniswap API asset class)
-- [ ] Notes / blockers:
+Quote responses still expose `gasFeeUSD`, but on Sepolia the number was not a trustworthy USD gas cost (looked like a mainnet-style estimate / placeholder).
 
-```
-Need live RPC_URL + funded wallet for live txs. Default EXECUTION_MODE=dry_run.
-Set SAFE_WALLET_ADDRESS for post-exit transfer. CLI: pnpm cli swap|deposit|withdraw|positions|pool-info|panic-simulate|panic-worker
-Dashboard: pnpm api && pnpm dashboard
-```
+**Impact:** Dashboard dry-run quotes showed bogus “USD gas” until we special-cased non-mainnet and displayed native ETH from `gasFee` (wei) instead.
 
-### The Graph
+**Ask:** Document which quote fields are reliable per `chainId`, or omit / null `gasFeeUSD` off mainnet.
 
-- [x] Live blockchain data source for token/pool monitoring ([hackathon resources](https://thegraph.com/blog/hackathon-resources/))
-- [x] GraphQL against Uniswap v3 Ethereum subgraph (`GRAPH_UNISWAP_SUBGRAPH`) — portfolio tokens + pool health + price stop-loss + depeg heuristics in `apps/scanner`
-- [ ] Optional: Substreams for high-frequency pool events; x402 pay-per-query
-- [x] Track target: **Best AI Use Case of The Graph** (risk monitor / execution agent)
-- [ ] Notes / blockers:
+### 2. Two different API hosts + different required headers
 
-```
-Set GRAPH_API_KEY. Scanner: pnpm scanner
-Watches: WATCHED_POOLS, PORTFOLIO_TOKENS, PEGGED_TOKENS / SUSD_ADDRESS
-Thresholds: PRICE_DROP_THRESHOLD_PCT, DEPEG_THRESHOLD_BPS, POOL_TVL_DROP_THRESHOLD_PCT
-```
+Trading and LP live on different base URLs. Trade calls also need `x-universal-router-version: 2.0`; LP calls do not.
 
-### 0G Compute
+**Impact:** Easy to hit the wrong host or miss the UR header and get opaque 4xx/5xx. Skills docs help, but a single “integration checklist” for both surfaces would cut setup time.
 
-- [x] Inference via [0G Compute](https://docs.0g.ai/) Router OpenAI-compatible client (`packages/zg`)
-- [x] Agent uses 0G for threat scoring / panic decision narrative (heuristic fallback if no key)
-- [ ] Notes / blockers:
+### 3. No first-class “list my positions” for the panic agent
 
-```
-Set ZG_ROUTER_API_KEY for live router scoring. Without it, heuristic fallback still attaches rationale.
-```
+For “what NFTs does this wallet hold / what’s in this pool?”, we could not rely on a simple LP API owner listing that matched our needs.
 
-### Hexens Glider Monitor
+**Impact:** Fell back to on-chain `NonfungiblePositionManager` (`balanceOf` / `tokenOfOwnerByIndex` / `positions`) via RPC. Fine for MVP, but means the Uniswap API is not the single source of truth for portfolio inventory.
 
-- [ ] Community tier enrollment at [portal.hexens.io](https://portal.hexens.io) (manual)
-- [ ] Contracts / dependency graph under Glider monitoring (manual)
-- [x] Webhook channel wired: `POST /hooks/glider` (+ `x-glider-secret`) and `/api/glider/simulate`
-- [ ] Notes / blockers:
+**Ask:** Owner position listing (or signed wallet session → positions) on the LP API would make agent demos cleaner.
 
-```
-Point Glider portal webhook to public tunnel → :8787/hooks/glider
-Local demo: curl -X POST localhost:8787/api/glider/simulate
-```
+### 4. Position token amounts are not returned (only liquidity / ticks)
 
-### Extra monitors
+LP / NPM data gives liquidity + tick range, not human-readable token0/token1 balances.
 
-- [x] Blockaid/X exploit + depeg scrape/parse (`X_BEARER_TOKEN` or fixture; watchlist-filtered)
-- [x] Optional Forta GraphQL poll (`FORTA_POLL_ENABLED=true`)
-- [x] Executor: withdraw LP → swap to stables → `transferToSafe` (`SAFE_WALLET_ADDRESS`)
-- [x] Public demo path: Vercel API + Upstash Redis (dry-run simulation for visitors)
+**Impact:** We reimplemented Uniswap v3 tick math (`sqrtPriceX96` + liquidity → amounts) to show “52 USDC / 53 sUSD” on the Portfolio page.
 
-## Mentor questions
+**Ask:** Optional enriched position payload (`amount0`, `amount1`, symbols, decimals) would save every integrator repeating TickMath.
 
-Use this section in office hours.
+### 5. Quote / plan expiry and empty `tx.data`
 
-1. Safest MVP signing model under hackathon time (env PK vs Safe module vs session key)?
-2. Best Uniswap API surface for **remove liquidity + multi-hop to stable** in one coordinated flow?
-3. Which Graph subgraphs are most reliable for Uniswap v3/v4 pool TVL + price + stablecoin peg on mainnet/testnet this weekend?
-4. Glider Community tier: webhook latency / payload shape for agent automation?
-5. 0G Router: recommended model + latency budget for sub-30s panic decisions?
+Built swap/LP transactions can come back with empty or stale calldata if the plan expires or the client mishandles the response.
 
-## Decisions log
+**Impact:** Had to validate `to` / `data` before broadcast and surface “quote may have expired” errors.
 
-| Date | Decision | Why |
-| --- | --- | --- |
-| 2026-07-25 | Two-process agent (scanner ≠ executor) | Isolate keys; clearer sponsor story |
-| 2026-07-25 | Multi-source panic confirmations (default 2) | Cut false-positive exits |
-| 2026-07-25 | Flight assets: USDC → USDT → DAI priority | Liquidity + perceived safety |
-| 2026-07-25 | Primary security feed: Glider + Blockaid/X; Forta optional | Free/demo paths + machine-readable backups |
-| 2026-07-25 | 0G scoring with heuristic fallback | Works offline; still tells 0G sponsor story when keyed |
+**Ask:** Clearer error codes when a quote is expired vs malformed client payload.
 
-## Demo script (recording / live)
+### 6. Error bodies are inconsistent (JSON vs non-JSON)
 
-**One-shot (terminal — best for screen recording):**
+Some failure paths return JSON (`error` / `detail`); others returned non-JSON bodies that broke naive `res.json()` parsers on the public demo API.
 
-```bash
-# Terminal A: optional API + dashboard for the UI shot
-pnpm api
-pnpm dashboard
+**Impact:** Hardened fetch helpers to always read text first, then parse; map status + body into one error string for the UI.
 
-# Terminal B: inject incident + execute exit plan (dry_run by default)
-pnpm demo -- --scenario depeg
-# or: exploit | both
-```
+**Ask:** Always JSON error envelope with a stable `code` + `message`.
 
-**One-click (dashboard):** open control surface → **Presentation demo** →
-**▶ Simulate incident & execute plan**. Re-runnable; bypasses panic cooldown.
+### 7. Multi-step approval / Permit2 / UniswapX branching
 
-**Live txs:** set `SAFE_WALLET_ADDRESS`, save policy `executionMode=live`, then same button / `pnpm demo`.
+Trade flow: `check_approval` → optional approval tx → `quote` → optional Permit2 sign → `swap`. Routing can be classic UR or UniswapX (`DUTCH_V2` / `DUTCH_V3` / `PRIORITY`) with different signature shapes.
 
-Steps the bot runs: detect → 0G score → enqueue → withdraw LP → swap to stables → transfer to safe wallet.
+**Impact:** Extra branching for a panic “flight to stables” path that just wants a reliable classic V3 swap under stress.
 
-## Risks & open issues
+**Ask:** A documented “agent panic swap” preset (force classic V3, skip UniswapX) would reduce footguns for automated executors.
 
-- False positives causing unnecessary exits (mitigate with confirmations + dry-run first).
-- Uniswap API key / rate limits during demo.
-- Graph subgraph freshness vs mempool-speed exploits (accept “fast response”, not “same-block firewall”).
-- Hot wallet key management (MVP only; document upgrade path to Safe / session keys).
-- X API bearer may be unavailable — fixture covers demo.
+### 8. LP `check_approval` KYC / allowlist warnings
+
+LP approval responses can include `kycRequiredWarnings` for permissioned pools.
+
+**Impact:** We treat that as a hard stop. Fine, but easy to miss in docs until you hit it.
+
+### 9. Dry-run / simulation story is split
+
+LP create/decrease support `simulateTransaction`; trade dry-run is more “plan but don’t send” on our side. Public Vercel demo cannot hold a hot key, so we only quote / simulate activity for visitors.
+
+**Impact:** Two mental models (API simulate vs client dry-run) for sponsors watching the demo.
+
+**Ask:** Uniform `simulate: true` across trade + LP that returns gas + amounts without requiring a funded signer.
+
+### 10. Sepolia demo LP still needed custom on-chain setup
+
+Creating / seeding our sUSD–USDC v3 pool for the hackathon demo was mostly scripts + NPM on Sepolia, not a one-shot LP API “create demo pool” path.
+
+**Impact:** More time on pool bootstrap than on agent logic.
+
+---
+
+## What worked well
+
+- API key from the Developer Platform unlocked both Trading + LP with the same key.
+- `/lp/pool_info` and `/quote` were enough to prove routing + pool metadata quickly.
+- Official AI skills (`swap-integration`, `lp-integration`, `viem-integration`) were a useful map of endpoints and headers.
+- Classic V3 `protocols: ["V3"]` on quote kept panic swaps predictable once we locked that in.
+
+---
+
+## Suggested Uniswap improvements (for agents)
+
+1. Null or omit unreliable quote money fields off mainnet (`gasFeeUSD`).
+2. Owner position inventory + enriched amounts on the LP API.
+3. Stable JSON errors with machine-readable codes.
+4. Explicit “classic V3 only / no UniswapX” flag for automated executors.
+5. One shared simulate mode for trade + LP dry-runs.
+
+---
 
 ## Contact
 
-GitHub: [armsves/sentinel](https://github.com/armsves/sentinel)
+GitHub: [armsves/sentinel](https://github.com/armsves/sentinel) · X: [x.com/armsves](https://x.com/armsves)
