@@ -19,6 +19,7 @@ cp .env.example .env
 # set RPC_URL, PRIVATE_KEY or WALLET_ADDRESS, UNISWAP_API_KEY, GRAPH_API_KEY
 
 pnpm install
+pnpm build
 
 # Terminal A — scanner + panic worker (one process)
 pnpm bot
@@ -28,12 +29,21 @@ pnpm api
 
 # Terminal C — control UI (optional; or use https://sentinel-lisbon.vercel.app)
 pnpm dashboard
-
-# Or CLI
-pnpm cli positions
-pnpm cli queue
-pnpm cli pool-info --tokenA 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 --tokenB 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 --fee 3000
 ```
+
+### Windows
+
+Packages must be built into `dist/` before the bot runs. If you see `ERR_MODULE_NOT_FOUND` for `@sentinel/core/dist` or `has no exported member 'logger'`, clean stale build artifacts and rebuild:
+
+```powershell
+git pull
+Get-ChildItem -Path packages -Recurse -Directory -Filter dist | Remove-Item -Recurse -Force
+Get-ChildItem -Path packages -Recurse -Filter tsconfig.tsbuildinfo | Remove-Item -Force
+pnpm build
+pnpm bot
+```
+
+`pnpm bot` also runs `build:packages` first (core → graph → monitors → uniswap → zg, one after another) so a plain `pnpm -r build` race on Windows is avoided.
 
 Set `EXECUTION_MODE=live` only when you intend to broadcast.
 
