@@ -85,8 +85,21 @@ export type PositionSummary = {
   token1Address: string;
   token0Symbol?: string;
   token1Symbol?: string;
+  token0Decimals?: number;
+  token1Decimals?: number;
+  /** Human-readable token0 amount currently in the position */
+  amount0?: string;
+  /** Human-readable token1 amount currently in the position */
+  amount1?: string;
+  amount0Raw?: string;
+  amount1Raw?: string;
+  /** Uncollected fees (raw) */
+  tokensOwed0?: string;
+  tokensOwed1?: string;
   liquidity?: string;
   tickLower?: number;
   tickUpper?: number;
+  currentTick?: number;
+  inRange?: boolean;
   feeTier?: number;
 };

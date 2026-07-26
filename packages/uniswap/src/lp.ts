@@ -1,6 +1,16 @@
 import { getConfig, logger, type PositionSummary } from "@sentinel/core";
-import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from "viem";
+import {
+  erc20Abi,
+  formatUnits,
+  type Account,
+  type Chain,
+  type Hex,
+  type PublicClient,
+  type Transport,
+  type WalletClient,
+} from "viem";
 import { apiPost, lpHeaders, sendApiTx, type ApiTx } from "./http.js";
+import { getAmountsForPosition } from "./v3math.js";
 
 export type Protocol = "V2" | "V3" | "V4";
 
@@ -251,6 +261,29 @@ export const V3_NPM: Record<number, `0x${string}`> = {
   11155111: "0x1238536071E1c677A632429e3655c799b22cDA52",
 };
 
+export const V3_FACTORY: Record<number, `0x${string}`> = {
+  1: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  10: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  42161: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  8453: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+  137: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  11155111: "0x0227628f3F457C4401c86Fc05597ce00c2F1aF4f",
+};
+
+const V3_FACTORY_ABI = [
+  {
+    type: "function",
+    name: "getPool",
+    stateMutability: "view",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "fee", type: "uint24" },
+    ],
+    outputs: [{ type: "address" }],
+  },
+] as const;
+
 export async function getPositionByTokenId(
   publicClient: PublicClient<Transport, Chain>,
   tokenId: bigint,
@@ -273,6 +306,8 @@ export async function getPositionByTokenId(
     tickLower: Number(pos[5]),
     tickUpper: Number(pos[6]),
     liquidity: pos[7].toString(),
+    tokensOwed0: pos[10].toString(),
+    tokensOwed1: pos[11].toString(),
   };
 }
 
@@ -326,6 +361,21 @@ const V3_POOL_ABI = [
     inputs: [],
     outputs: [{ type: "uint24" }],
   },
+  {
+    type: "function",
+    name: "slot0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "sqrtPriceX96", type: "uint160" },
+      { name: "tick", type: "int24" },
+      { name: "observationIndex", type: "uint16" },
+      { name: "observationCardinality", type: "uint16" },
+      { name: "observationCardinalityNext", type: "uint16" },
+      { name: "feeProtocol", type: "uint8" },
+      { name: "unlocked", type: "bool" },
+    ],
+  },
 ] as const;
 
 export type V3PoolKey = {
@@ -375,6 +425,110 @@ export function positionMatchesPool(
   return true;
 }
 
+/** Attach current token amounts + symbols for a v3 NFT position. */
+export async function enrichPositionAmounts(
+  publicClient: PublicClient<Transport, Chain>,
+  pos: PositionSummary,
+  chainId = getConfig().CHAIN_ID,
+): Promise<PositionSummary> {
+  if (
+    pos.protocol !== "V3" ||
+    pos.liquidity == null ||
+    pos.tickLower == null ||
+    pos.tickUpper == null
+  ) {
+    return pos;
+  }
+
+  let pool = pos.poolAddress?.toLowerCase() as `0x${string}` | undefined;
+  if (!pool && pos.feeTier != null) {
+    const factory = V3_FACTORY[chainId];
+    if (factory) {
+      try {
+        const resolved = await publicClient.readContract({
+          address: factory,
+          abi: V3_FACTORY_ABI,
+          functionName: "getPool",
+          args: [
+            pos.token0Address as `0x${string}`,
+            pos.token1Address as `0x${string}`,
+            pos.feeTier,
+          ],
+        });
+        if (resolved && resolved !== "0x0000000000000000000000000000000000000000") {
+          pool = resolved.toLowerCase() as `0x${string}`;
+        }
+      } catch {
+        /* leave unresolved */
+      }
+    }
+  }
+  if (!pool) return pos;
+
+  try {
+    const [slot0, dec0, dec1, sym0, sym1] = await Promise.all([
+      publicClient.readContract({
+        address: pool,
+        abi: V3_POOL_ABI,
+        functionName: "slot0",
+      }),
+      publicClient.readContract({
+        address: pos.token0Address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "decimals",
+      }),
+      publicClient.readContract({
+        address: pos.token1Address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "decimals",
+      }),
+      publicClient.readContract({
+        address: pos.token0Address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "symbol",
+      }),
+      publicClient.readContract({
+        address: pos.token1Address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "symbol",
+      }),
+    ]);
+
+    const sqrtPriceX96 = slot0[0] as bigint;
+    const currentTick = Number(slot0[1]);
+    const { amount0, amount1 } = getAmountsForPosition({
+      sqrtPriceX96,
+      tickLower: pos.tickLower,
+      tickUpper: pos.tickUpper,
+      liquidity: BigInt(pos.liquidity),
+    });
+    const d0 = Number(dec0);
+    const d1 = Number(dec1);
+
+    return {
+      ...pos,
+      poolAddress: pool,
+      token0Symbol: String(sym0),
+      token1Symbol: String(sym1),
+      token0Decimals: d0,
+      token1Decimals: d1,
+      amount0Raw: amount0.toString(),
+      amount1Raw: amount1.toString(),
+      amount0: formatUnits(amount0, d0),
+      amount1: formatUnits(amount1, d1),
+      currentTick,
+      inRange: currentTick >= pos.tickLower && currentTick < pos.tickUpper,
+    };
+  } catch (err) {
+    logger.warn("failed to enrich position amounts", {
+      nft: pos.nftTokenId,
+      pool,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return pos;
+  }
+}
+
 /** Split owner NFTs into watched-pool positions vs everything else. */
 export async function partitionOwnerPositions(
   publicClient: PublicClient<Transport, Chain>,
@@ -389,7 +543,10 @@ export async function partitionOwnerPositions(
     (p) => p.liquidity != null && BigInt(p.liquidity) > 0n,
   );
   if (!watchedPools.length) {
-    return { watched: [], other: all, poolKeys: [] };
+    const enriched = await Promise.all(
+      all.map((p) => enrichPositionAmounts(publicClient, p)),
+    );
+    return { watched: [], other: enriched, poolKeys: [] };
   }
 
   const poolKeys: V3PoolKey[] = [];
@@ -416,5 +573,11 @@ export async function partitionOwnerPositions(
       other.push(pos);
     }
   }
-  return { watched, other, poolKeys };
+
+  const [watchedEnriched, otherEnriched] = await Promise.all([
+    Promise.all(watched.map((p) => enrichPositionAmounts(publicClient, p))),
+    Promise.all(other.map((p) => enrichPositionAmounts(publicClient, p))),
+  ]);
+
+  return { watched: watchedEnriched, other: otherEnriched, poolKeys };
 }

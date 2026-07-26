@@ -59,8 +59,16 @@ type Position = {
   poolAddress?: string;
   token0Address: string;
   token1Address: string;
+  token0Symbol?: string;
+  token1Symbol?: string;
+  amount0?: string;
+  amount1?: string;
   liquidity?: string;
   feeTier?: number;
+  tickLower?: number;
+  tickUpper?: number;
+  currentTick?: number;
+  inRange?: boolean;
   note?: string;
 };
 
@@ -1182,28 +1190,54 @@ function PortfolioPage(props: {
   );
 }
 
+function formatFee(feeTier?: number) {
+  if (feeTier == null) return null;
+  const pct = feeTier / 10_000;
+  return Number.isInteger(pct) ? `${pct}%` : `${pct}%`;
+}
+
+function formatAmt(value?: string) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  if (n === 0) return "0";
+  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
 function PositionRow({ position: p }: { position: Position }) {
+  const pair =
+    p.token0Symbol && p.token1Symbol
+      ? `${p.token0Symbol} / ${p.token1Symbol}`
+      : p.token0Address
+        ? `${shortAddr(p.token0Address)} / ${shortAddr(p.token1Address)}`
+        : null;
+  const amounts =
+    p.amount0 != null && p.amount1 != null
+      ? `${formatAmt(p.amount0)} ${p.token0Symbol ?? "token0"} + ${formatAmt(p.amount1)} ${p.token1Symbol ?? "token1"}`
+      : null;
+  const fee = formatFee(p.feeTier);
+
   return (
     <li className="item">
       <div>
-        {p.protocol}
-        {p.nftTokenId ? ` NFT #${p.nftTokenId}` : ""}
-        {p.feeTier != null ? ` · fee ${p.feeTier}` : ""}
+        {amounts ?? (
+          <>
+            {p.protocol}
+            {p.nftTokenId ? ` NFT #${p.nftTokenId}` : ""}
+          </>
+        )}
       </div>
       <div className="meta">
+        {pair}
+        {fee ? ` · ${fee}` : ""}
+        {p.nftTokenId ? ` · NFT #${p.nftTokenId}` : ""}
+        {p.inRange != null ? (p.inRange ? " · in range" : " · out of range") : ""}
         {(p.poolAddress ?? p.pool) ? (
           <>
+            <br />
             pool {shortAddr(p.poolAddress ?? p.pool!)}
-            <br />
-          </>
-        ) : null}
-        {p.token0Address
-          ? `${shortAddr(p.token0Address)} / ${shortAddr(p.token1Address)}`
-          : null}
-        {p.liquidity ? (
-          <>
-            <br />
-            liquidity {p.liquidity}
           </>
         ) : null}
         {p.note ? (
