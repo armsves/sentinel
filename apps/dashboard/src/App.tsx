@@ -488,75 +488,108 @@ function HomePage({
   return (
     <div className="home">
       <section className="hero">
-        <p className="hero-kicker">ETHGlobal Lisbon 2026</p>
-        <h1 className="brand hero-brand">SENTINEL</h1>
-        <p className="hero-lead">
-          Panic-button liquidity guardian. Always-on agents watch Uniswap LP for
-          exploits, depegs, and pool failures — then exit to stables and a safe
-          wallet.
-        </p>
-        <div className="hero-cta">
-          <button type="button" className="primary" onClick={onOpenControl}>
-            Open control
-          </button>
-          <button type="button" onClick={onOpenConfig}>
-            Configure policy
-          </button>
-          <button type="button" onClick={onOpenPortfolio}>
-            Check portfolio
-          </button>
+        <div className="hero-row">
+          <div className="hero-copy">
+            <p className="hero-kicker">ETHGlobal Lisbon 2026</p>
+            <h1 className="brand hero-brand">SENTINEL</h1>
+            <p className="hero-lead">
+              The DeFi panic button — exit Uniswap LP before the pool turns
+              toxic.
+            </p>
+            <div className="hero-cta">
+              <button type="button" className="primary" onClick={onOpenControl}>
+                Open control
+              </button>
+              <button type="button" onClick={onOpenConfig}>
+                Configure policy
+              </button>
+              <button type="button" onClick={onOpenPortfolio}>
+                Check portfolio
+              </button>
+            </div>
+          </div>
+          <img
+            src="/sentinel-logo.png"
+            alt=""
+            className="hero-logo"
+            width={160}
+            height={160}
+          />
         </div>
       </section>
 
-      <section className="panel home-section">
-        <h2>What it does</h2>
+      <section className="pitch-slide">
+        <p className="pitch-index">01 · Problem</p>
+        <h2>Humans cannot watch liquidity 24/7</h2>
         <p className="prose">
-          Sentinel is a DeFi flight-to-safety agent. When threat signals cross
-          your thresholds, it withdraws Uniswap v3 liquidity, swaps residuals
-          into stables, and optionally transfers funds to a cold/safe address —
-          without waiting for a human to click through a wallet UI.
+          Exploits, stablecoin depegs, and pool drains move in seconds. By the
+          time a Telegram alert is read, LP is already underwater — and clicking
+          through a wallet UI is too slow.
         </p>
-      </section>
-
-      <section className="panel home-section">
-        <h2>How the loop works</h2>
-        <ol className="flow-list">
-          <li>
-            <strong>Watch</strong> — The Graph pool health, Blockaid/X intel,
-            Glider webhooks, and optional Forta.
-          </li>
-          <li>
-            <strong>Score</strong> — 0G Compute ranks severity and whether to
-            panic.
-          </li>
-          <li>
-            <strong>Exit</strong> — Withdraw LP → swap to USDC/USDT/DAI →
-            transfer to safe wallet.
-          </li>
-        </ol>
-      </section>
-
-      <section className="panel home-section">
-        <h2>Stack</h2>
-        <ul className="stack-list">
-          <li>Uniswap Trading + LP APIs</li>
-          <li>The Graph Uniswap v3 subgraph</li>
-          <li>0G Compute for threat scoring</li>
-          <li>Hexens Glider + Blockaid/X signals</li>
-          <li>Upstash Redis for shared public demo state</li>
+        <ul className="pitch-points">
+          <li>Threat intel arrives after the damage starts</li>
+          <li>Stop-loss / peg / TVL breaches need instant reaction</li>
+          <li>Manual exits fail under stress and time pressure</li>
         </ul>
       </section>
 
-      <section className="panel home-section">
-        <h2>Try it</h2>
+      <section className="pitch-slide">
+        <p className="pitch-index">02 · Solution</p>
+        <h2>An always-on flight-to-safety agent</h2>
         <p className="prose">
-          On this public demo, firing a stop-loss runs a dry-run exit plan and
-          streams every step into the live agent feed. For real on-chain exits,
-          run the local scanner, API, and panic worker with your wallet keys.
+          Sentinel watches your Uniswap positions and fused threat feeds. When
+          policy thresholds trip, it withdraws LP, swaps into stables, and
+          transfers to a safe wallet — no human in the loop.
         </p>
-        <button type="button" className="primary" onClick={onOpenControl}>
-          Fire a simulated incident
-        </button>
+        <ul className="pitch-points">
+          <li>Policy you set: stop-loss, depeg, TVL, severity</li>
+          <li>Multi-source confirm before live exits</li>
+          <li>Dry-run demo now; live execution with your keys locally</li>
+        </ul>
+      </section>
+
+      <section className="pitch-slide">
+        <p className="pitch-index">03 · How it works</p>
+        <h2>Watch → score → exit</h2>
+        <ol className="pitch-steps">
+          <li>
+            <strong>Watch</strong>
+            <span>
+              The Graph pool health, Blockaid/X, Glider webhooks, optional Forta
+            </span>
+          </li>
+          <li>
+            <strong>Score</strong>
+            <span>0G Compute ranks severity and whether to panic</span>
+          </li>
+          <li>
+            <strong>Exit</strong>
+            <span>
+              Withdraw LP → swap to USDC/USDT/DAI → transfer to safe wallet
+            </span>
+          </li>
+        </ol>
+        <p className="prose pitch-stack">
+          Built on Uniswap Trading + LP APIs, The Graph, 0G Compute, Hexens
+          Glider, and Blockaid/X.
+        </p>
+      </section>
+
+      <section className="pitch-slide pitch-close">
+        <p className="pitch-index">04 · Demo</p>
+        <h2>Fire an incident on stage</h2>
+        <p className="prose">
+          Trigger a stop-loss, depeg, or exploit simulation and watch every
+          step stream in the live agent feed.
+        </p>
+        <div className="hero-cta">
+          <button type="button" className="primary" onClick={onOpenControl}>
+            Simulate an incident
+          </button>
+          <button type="button" onClick={onOpenConfig}>
+            Tune thresholds
+          </button>
+        </div>
       </section>
     </div>
   );
