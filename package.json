@@ -6,7 +6,8 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm run build:packages && pnpm --filter @sentinel/dashboard build",
-    "build:packages": "pnpm --filter @sentinel/core build && pnpm --filter @sentinel/graph build && pnpm --filter @sentinel/monitors build && pnpm --filter @sentinel/uniswap build && pnpm --filter @sentinel/zg build",
+    "build:packages": "node scripts/clean-dists.mjs && pnpm --filter @sentinel/core build && pnpm --filter @sentinel/graph build && pnpm --filter @sentinel/monitors build && pnpm --filter @sentinel/uniswap build && pnpm --filter @sentinel/zg build",
+    "clean": "node scripts/clean-dists.mjs",
     "dev:scanner": "pnpm --filter @sentinel/scanner dev",
     "dev:executor": "pnpm --filter @sentinel/executor dev",
     "bot": "pnpm run build:packages && pnpm --filter @sentinel/bot start",
