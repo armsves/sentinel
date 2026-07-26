@@ -395,8 +395,8 @@ input {
   font-weight: 800;
   letter-spacing: -0.03em;
   margin: 0 0 0.85rem;
-  max-width: 22ch;
   line-height: 1.15;
+  white-space: nowrap;
 }
 
 .pitch-points {

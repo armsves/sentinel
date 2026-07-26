@@ -593,10 +593,6 @@ function ControlPage(props: {
     <>
       <section className="page-head">
         <h1>Control</h1>
-        <p className="tagline">
-          Simulate a breach past your thresholds and watch the agent exit plan
-          stream live.
-        </p>
       </section>
 
       <section className="panel demo-panel">
@@ -1038,10 +1034,6 @@ function PortfolioPage(props: {
       <section className="page-head portfolio-head">
         <div className="page-head-copy">
           <h1>Portfolio</h1>
-          <p className="tagline">
-            Hot wallet, safe destination, watched pools, and open Uniswap
-            positions the agent can exit.
-          </p>
         </div>
         <button
           type="button"
