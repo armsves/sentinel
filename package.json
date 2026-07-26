@@ -2,7 +2,7 @@
   "name": "sentinel",
   "private": true,
   "version": "0.1.0",
-  "description": "DeFi panic-button agent: Uniswap LP exit + Graph monitoring + 0G scoring",
+  "description": "Sentinel Stop Loss for your entire portfolio, agent: monitor exploits/depegs/crashes, exit Uniswap LP, flight to stables (Uniswap + The Graph + 0G)",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r run build",
