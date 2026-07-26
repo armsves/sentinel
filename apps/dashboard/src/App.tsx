@@ -165,13 +165,6 @@ export function App() {
   const [chatLog, setChatLog] = useState<
     Array<{ role: "user" | "assistant"; content: string }>
   >([]);
-  const [swap, setSwap] = useState({
-    // Sepolia defaults (public demo chain)
-    tokenIn: "0xfff9976782d46CC05630D1f6eBAb18b2324d6B14",
-    tokenOut: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-    amount: "0.01",
-    decimals: "18",
-  });
 
   const refresh = useCallback(async () => {
     try {
@@ -383,50 +376,6 @@ export function App() {
     }
   }
 
-  async function runSwap(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const res = await api<{
-        mode: string;
-        routing: string;
-        simulated: boolean;
-        hash?: string;
-        amountIn?: string;
-        amountOut?: string | null;
-        gasFeeEth?: string | null;
-        gasFeeUSD?: string | number | null;
-        gasUseEstimate?: string | number | null;
-        route?: string | null;
-        requestId?: string | null;
-      }>("/api/actions/swap", {
-        method: "POST",
-        body: JSON.stringify({
-          tokenIn: swap.tokenIn,
-          tokenOut: swap.tokenOut,
-          amount: swap.amount,
-          decimals: Number(swap.decimals),
-        }),
-      });
-      const out = res.amountOut ? ` → ${res.amountOut} out` : "";
-      const gas =
-        res.gasFeeUSD != null
-          ? ` · gas ~$${Number(res.gasFeeUSD).toFixed(2)}`
-          : res.gasFeeEth != null
-            ? ` · gas ~${res.gasFeeEth} ETH`
-            : res.gasUseEstimate != null
-              ? ` · gas ~${res.gasUseEstimate} units`
-              : "";
-      toast.success(
-        `Dry-run quote ${res.routing}${out}${gas}${res.hash ? ` · ${res.hash}` : ""}`,
-      );
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="shell">
       <header className="topbar">
@@ -499,9 +448,6 @@ export function App() {
           setChatInput={setChatInput}
           chatLog={chatLog}
           runChat={runChat}
-          swap={swap}
-          setSwap={setSwap}
-          runSwap={runSwap}
           publicDemo={Boolean(health?.publicDemo)}
         />
       ) : null}
@@ -849,19 +795,6 @@ function ConfigPage(props: {
   setChatInput: (v: string) => void;
   chatLog: Array<{ role: "user" | "assistant"; content: string }>;
   runChat: (e: FormEvent) => void;
-  swap: {
-    tokenIn: string;
-    tokenOut: string;
-    amount: string;
-    decimals: string;
-  };
-  setSwap: (s: {
-    tokenIn: string;
-    tokenOut: string;
-    amount: string;
-    decimals: string;
-  }) => void;
-  runSwap: (e: FormEvent) => void;
   publicDemo: boolean;
 }) {
   const {
@@ -874,9 +807,6 @@ function ConfigPage(props: {
     setChatInput,
     chatLog,
     runChat,
-    swap,
-    setSwap,
-    runSwap,
     publicDemo,
   } = props;
 
@@ -1168,34 +1098,6 @@ function ConfigPage(props: {
             type="submit"
           >
             Send via 0G
-          </button>
-        </form>
-      </section>
-
-      <section className="panel" style={{ marginTop: "1.5rem" }}>
-        <h2>Dry-run swap</h2>
-        <p className="empty" style={{ marginBottom: "0.75rem" }}>
-          Quotes via Uniswap Trading API (no broadcast on public demo).
-          Defaults are Sepolia WETH → USDC.
-        </p>
-        <form className="form" onSubmit={(e) => void runSwap(e)}>
-          <input
-            value={swap.tokenIn}
-            onChange={(e) => setSwap({ ...swap, tokenIn: e.target.value })}
-            placeholder="tokenIn"
-          />
-          <input
-            value={swap.tokenOut}
-            onChange={(e) => setSwap({ ...swap, tokenOut: e.target.value })}
-            placeholder="tokenOut"
-          />
-          <input
-            value={swap.amount}
-            onChange={(e) => setSwap({ ...swap, amount: e.target.value })}
-            placeholder="amount"
-          />
-          <button className="primary" disabled={busy} type="submit">
-            Quote / swap via Uniswap API
           </button>
         </form>
       </section>

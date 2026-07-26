@@ -94,6 +94,10 @@ input {
   border-bottom: 1px solid var(--line);
 }
 
+.shell:has(.home) .topbar {
+  margin-bottom: 0.75rem;
+}
+
 .cylon {
   position: absolute;
   left: 0;
@@ -264,15 +268,14 @@ input {
 }
 
 .hero {
-  min-height: min(72vh, 640px);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 2rem 0 3rem;
-  margin-bottom: 1rem;
+  justify-content: flex-start;
+  padding: 0.75rem 0 2rem;
+  margin-bottom: 0.5rem;
   background:
-    radial-gradient(ellipse 70% 55% at 15% 20%, #243a1c 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 10%, #3a2218 0%, transparent 50%);
+    radial-gradient(ellipse 70% 55% at 15% 0%, #243a1c 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 0%, #3a2218 0%, transparent 50%);
 }
 
 .hero-kicker {
